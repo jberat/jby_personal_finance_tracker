@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Personal Financial Tracker{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ css_v }}">
+  <script src="{{ url_for('static', filename='js/shared.js') }}?v={{ shared_js_v }}"></script>{# must load in <head>: inline <script> blocks inside content blocks run at parse time, before end-of-body scripts #}
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+{% set ep = current_endpoint %}
+
+<!-- Drawer overlay -->
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+
+<div class="app-layout">
+
+  <!-- ── Sidebar Drawer ─────────────────────────────────────── -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div>
+        <div class="wordmark">Personal Financial Tracker</div>
+        <div class="sub">Personal Finances</div>
+      </div>
+      <button class="hamburger" onclick="closeDrawer()" title="Close menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+
+    <div class="sidebar-nav">
+
+      <!-- Dashboard -->
+      <a href="/" class="nav-link {% if ep == 'dashboard' %}active{% endif %}">
+        <span class="icon">⊞</span> Dashboard
+      </a>
+
+      <!-- Review Queue -->
+      <a href="/review" class="nav-link {% if ep == 'review_queue' %}active{% endif %}">
+        <span class="icon">◎</span> Review Queue
+        {% if pending_count > 0 %}
+          <span class="badge">{{ pending_count }}</span>
+        {% endif %}
+      </a>
+
+      <!-- Trash -->
+      <a href="/trash" class="nav-link {% if ep == 'trash_view' %}active{% endif %}">
+        <span class="icon">🗑</span> Trash
+      </a>
+
+      <div class="nav-divider"></div>
+
+      <!-- Income -->
+      {% set inc_open = ep in ['income_overview','income_transactions','income'] %}
+      <div class="nav-group">
+        <div class="nav-group-header {% if inc_open %}open active-group{% endif %}"
+             onclick="toggleGroup(this)">
+          <span class="icon">↑</span>
+          Income
+          <span class="chevron">▶</span>
+        </div>
+        <div class="nav-sub {% if inc_open %}open{% endif %}">
+          <a href="/income/overview"
+             class="nav-sub-item {% if ep == 'income_overview' %}active{% endif %}">
+            Overview
+          </a>
+          <a href="/income/transactions"
+             class="nav-sub-item {% if ep == 'income_transactions' %}active{% endif %}">
+            Transactions
+          </a>
+        </div>
+      </div>
+
+      <!-- Expenses -->
+      {% set exp_open = ep in ['expenses_overview','expenses_transactions','expenses','expenses_by_vendor'] %}
+      <div class="nav-group">
+        <div class="nav-group-header {% if exp_open %}open active-group{% endif %}"
+             onclick="toggleGroup(this)">
+          <span class="icon">↓</span>
+          Expenses
+          <span class="chevron">▶</span>
+        </div>
+        <div class="nav-sub {% if exp_open %}open{% endif %}">
+          <a href="/expenses/overview"
+             class="nav-sub-item {% if ep == 'expenses_overview' %}active{% endif %}">
+            Overview
+          </a>
+          <a href="/expenses/transactions"
+             class="nav-sub-item {% if ep == 'expenses_transactions' %}active{% endif %}">
+            Transactions
+          </a>
+          <a href="/expenses/by-vendor"
+             class="nav-sub-item {% if ep == 'expenses_by_vendor' %}active{% endif %}">
+            By Vendor
+          </a>
+        </div>
+      </div>
+
+      <!-- Investments -->
+      {% set inv_open = ep in ['investments_overview','investments_transactions',
+                               'investments_transfer','investments_account',
+                               'investments_ledger','investments_import',
+                               'investments_docs'] %}
+      <div class="nav-group">
+        <div class="nav-group-header {% if inv_open %}open active-group{% endif %}"
+             onclick="toggleGroup(this)">
+          <span class="icon">◈</span>
+          Investments
+          <span class="chevron">▶</span>
+        </div>
+        <div class="nav-sub {% if inv_open %}open{% endif %}">
+          <a href="/investments/overview"
+             class="nav-sub-item {% if ep == 'investments_overview' %}active{% endif %}">
+            Overview
+          </a>
+          <a href="/investments/ledger"
+             class="nav-sub-item {% if ep in ['investments_ledger','investments_transactions'] %}active{% endif %}">
+            Transactions
+          </a>
+          <a href="/investments/transfer"
+             class="nav-sub-item {% if ep == 'investments_transfer' %}active{% endif %}">
+            Transfer
+          </a>
+          <a href="/investments/docs"
+             class="nav-sub-item {% if ep == 'investments_docs' %}active{% endif %}">
+            How it works
+          </a>
+        </div>
+      </div>
+
+      <div class="nav-divider"></div>
+
+      <!-- Tools — operational utilities (Import, Receipts, Cleanup, etc.). -->
+      {# Tools submenu is registry-driven: TOOLS_REGISTRY in app.py +
+         visibility picks in Docs & Settings → Tools Menu. #}
+      {% set tools_open = tools_group_active %}
+      <div class="nav-group">
+        <div class="nav-group-header {% if tools_open %}open active-group{% endif %}"
+             onclick="toggleGroup(this)">
+          <span class="icon">⚒</span>
+          Tools
+          <span class="chevron">▶</span>
+        </div>
+        <div class="nav-sub {% if tools_open %}open{% endif %}">
+          <a href="/tools"
+             class="nav-sub-item {% if ep == 'tools_home' %}active{% endif %}">
+            All Tools
+          </a>
+          {% for t in tools_menu %}
+          <a href="{{ t.url }}"
+             class="nav-sub-item {% if t.active %}active{% endif %}">
+            {{ t.title }}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Docs & Settings — Overview (docs), Categorization,
+           Assumptions landing, Security. -->
+      {% set set_open = ep in ['settings_overview','settings_categorization',
+                               'settings_accounts',
+                               'settings_assumptions','settings_budget_values',
+                               'settings_exchange_rates','settings_shortcuts',
+                               'settings_tools_menu','settings_security'] %}
+      <div class="nav-group">
+        <div class="nav-group-header {% if set_open %}open active-group{% endif %}"
+             onclick="toggleGroup(this)">
+          <span class="icon">⚙</span>
+          Docs &amp; Settings
+          <span class="chevron">▶</span>
+        </div>
+        <div class="nav-sub {% if set_open %}open{% endif %}">
+          <a href="/settings/overview"
+             class="nav-sub-item {% if ep == 'settings_overview' %}active{% endif %}">
+            Overview
+          </a>
+          <a href="/settings/categorization"
+             class="nav-sub-item {% if ep == 'settings_categorization' %}active{% endif %}">
+            Categorization
+          </a>
+          <a href="/settings/accounts"
+             class="nav-sub-item {% if ep == 'settings_accounts' %}active{% endif %}">
+            Accounts
+          </a>
+          <a href="/settings/assumptions"
+             class="nav-sub-item {% if ep in ['settings_assumptions','settings_budget_values','settings_exchange_rates'] %}active{% endif %}">
+            Assumptions
+          </a>
+          <a href="/settings/shortcuts"
+             class="nav-sub-item {% if ep == 'settings_shortcuts' %}active{% endif %}">
+            Shortcuts
+          </a>
+          <a href="/settings/tools-menu"
+             class="nav-sub-item {% if ep == 'settings_tools_menu' %}active{% endif %}">
+            Tools Menu
+          </a>
+          <a href="/settings/security"
+             class="nav-sub-item {% if ep == 'settings_security' %}active{% endif %}">
+            Security
+          </a>
+        </div>
+      </div>
+
+    </div>{# /.sidebar-nav #}
+
+    <div class="sidebar-footer">
+      <a href="/logout">Sign out</a>
+    </div>
+  </nav>
+
+  <!-- ── Main ─────────────────────────────────────────────────── -->
+  <div class="main" id="main-content">
+    <div class="page-header">
+      <div class="header-left">
+        <button class="hamburger" id="main-hamburger" onclick="openDrawer()" title="Menu">
+          <span></span><span></span><span></span>
+        </button>
+        {% block back_link %}{% endblock %}
+        <h1>{% block page_title %}{% endblock %}</h1>
+      </div>
+      <div class="header-actions">{% block header_actions %}{% endblock %}</div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="alerts">
+          {% for cat, msg in messages %}
+            <div class="alert {{ cat }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <div class="page-body">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
+</div><!-- /.app-layout -->
+
+<script src="{{ url_for('static', filename='js/main.js') }}?v={{ js_v }}"></script>
+
+<script>
+// ── bfcache: re-fetch on browser Back/Forward ────────────────────
+// Without this, hitting the browser back button after editing a trx
+// shows the stale list page (no new note/link/etc. visible). The
+// `persisted` flag is true only when the page was restored from
+// bfcache, so this doesn't add work to normal navigation.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) window.location.reload();
+});
+
+// ── Drawer ─────────────────────────────────────────────────────
+// Restore path deliberately does NOT show #drawer-overlay: reopening the
+// sidebar re-indents the content (.main gets margin-left back), so the
+// sidebar never overlays it in this layout — style.css has no mobile
+// overlay mode (zero @media rules). Showing the scrim here left the whole
+// page grey-tinted until a stray click hit the scrim's own
+// click-to-dismiss (onclick="closeDrawer()"), which also re-collapsed the
+// sidebar. If a true narrow-screen overlay mode is added later, gate the
+// scrim on that mode's media query instead of showing it unconditionally.
+function openDrawer() {
+  document.getElementById('sidebar').classList.remove('collapsed');
+  document.getElementById('main-content').classList.remove('expanded');
+  document.getElementById('drawer-overlay').classList.remove('visible');
+  document.getElementById('main-hamburger').style.display = 'none';
+}
+function closeDrawer() {
+  document.getElementById('sidebar').classList.add('collapsed');
+  document.getElementById('main-content').classList.add('expanded');
+  document.getElementById('drawer-overlay').classList.remove('visible');
+  document.getElementById('main-hamburger').style.display = 'flex';
+}
+
+// ── Nav group expand/collapse ──────────────────────────────────
+// Accordion behavior: opening one sub-menu drawer closes whichever
+// other one was open — only one open at a time.
+function toggleGroup(header) {
+  const sub = header.nextElementSibling;
+  const isOpen = sub.classList.toggle('open');
+  header.classList.toggle('open', isOpen);
+  if (isOpen) {
+    document.querySelectorAll('#sidebar .nav-sub.open').forEach(s => {
+      if (s === sub) return;
+      s.classList.remove('open');
+      const h = s.previousElementSibling;
+      if (h && h.classList.contains('nav-group-header')) h.classList.remove('open');
+    });
+  }
+}
+
+// Keyboard: Escape closes drawer
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeDrawer();
+});
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

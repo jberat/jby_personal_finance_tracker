@@ -1,0 +1,43 @@
+# Personal Financial Tracker — Python dependencies
+#
+# Install with:  pip3 install -r requirements.txt
+# (Or inside a venv:  python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt)
+#
+# Python 3.10+ recommended (uses `from __future__ import annotations` and
+# modern type hints).
+
+# ── Core (required) ─────────────────────────────────────────────────────
+# Web framework. Pinned to 3.x for the new-ish render_template behavior
+# the app relies on.
+flask>=3.0,<4
+werkzeug>=3.0,<4
+
+# Excel exports (routes_export.py / export_xlsx.py) and XLSX imports.
+openpyxl>=3.1
+
+# ── Receipt pipeline fallbacks (optional but recommended) ──────────────
+# Receipt OCR backends, tried in order:
+#   1. bin/apple_ocr           (optional Swift helper — NOT included; macOS users
+#                               can build it: see the comment in process_receipts.py)
+#   2. pyobjc Vision/Quartz    (macOS native — best OCR quality on a Mac)
+#   3. pytesseract + Pillow    (cross-platform fallback)
+# Any one backend is enough; without any, receipts still file but photo/scan
+# text extraction is unavailable (text PDFs still parse).
+Pillow>=10
+pytesseract>=0.3.10   # also requires the `tesseract` binary — `brew install tesseract`
+
+# HEIC (iPhone photo) conversion has two backends:
+#   1. sips                    (macOS built-in, primary)
+#   2. pillow-heif             (cross-platform fallback)
+pillow-heif>=0.16
+
+# PDF text extraction / rasterizing uses the poppler CLI tools
+# (pdftotext + pdftoppm) — `brew install poppler` on macOS, or your
+# distro's poppler-utils package. No Python package needed.
+
+# ── PyObjC (macOS only, optional) ──────────────────────────────────────
+# Only needed if the Swift apple_ocr binary fails AND you want the Vision
+# framework fallback before tesseract. Skip if you trust the Swift binary.
+# Uncomment if needed:
+# pyobjc-framework-Vision>=10
+# pyobjc-framework-Quartz>=10

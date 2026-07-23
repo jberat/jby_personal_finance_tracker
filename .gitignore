@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+finance.db*
+*.db-journal
+*.db-wal
+*.db-shm
+app.log
+*.log
+.git-credentials
+.secret_key
+.app_password
+.app_user
+/imports/
+/receipts/

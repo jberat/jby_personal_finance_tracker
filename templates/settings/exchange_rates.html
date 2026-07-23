@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Exchange Rates — Personal Financial Tracker{% endblock %}
+{% block page_title %}Exchange Rates{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:640px">
+
+  <div class="text-sm text-2" style="margin-bottom:24px;line-height:1.6">
+    Rates used by the receipts pipeline to match foreign-currency receipts to
+    USD bank charges. The scanner searches ±10% around each rate — one rate
+    per currency, one truth. Update whenever a rate moves meaningfully.
+  </div>
+
+  {% for r in rates %}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><h2>{{ r.label }}</h2></div>
+    <div class="card-body">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="text-sm text-2" style="min-width:24px">{{ r.symbol }}</span>
+        <input type="number" class="form-control fx-rate" data-currency="{{ r.currency }}"
+               data-symbol="{{ r.symbol }}" step="0.01" min="0.1" max="1000"
+               value="{{ r.rate }}" style="width:120px;font-size:15px;text-align:right">
+        <span class="text-sm text-1" style="font-weight:600">= $1 USD</span>
+        <button class="btn btn-primary btn-sm fx-save" style="margin-left:8px">Save</button>
+        <span class="fx-msg text-xs" style="min-width:120px"></span>
+      </div>
+      <div class="fx-band text-xs text-3" style="margin-top:12px;line-height:1.6"></div>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="text-xs text-3" style="margin-top:8px;line-height:1.6">
+    Adding another currency? Same pattern — add it to <code>FX_RATES</code>
+    in <code>config.py</code> plus its detection keywords in the pipeline.
+  </div>
+
+</div>
+
+<script>
+document.querySelectorAll('.fx-rate').forEach(inp => {
+  const card = inp.closest('.card');
+  const band = card.querySelector('.fx-band');
+  const sym  = inp.dataset.symbol;
+  function update(){
+    const r = parseFloat(inp.value || 0);
+    band.textContent = r > 0
+      ? `Matcher accepts receipts implying a rate between ${sym}${(r*0.9).toFixed(2)} and ${sym}${(r*1.1).toFixed(2)} per $1 (±10%).`
+      : '';
+  }
+  inp.addEventListener('input', update); update();
+
+  card.querySelector('.fx-save').addEventListener('click', async () => {
+    const msg = card.querySelector('.fx-msg');
+    msg.textContent = 'Saving…'; msg.style.color = 'var(--text-3)';
+    try {
+      const r = await fetch('/api/settings/exchange-rate', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({currency: inp.dataset.currency, per_usd: parseFloat(inp.value)})
+      });
+      const d = await r.json();
+      if (d.ok) { if (window._txSavedToast) _txSavedToast(); msg.textContent = '✓ Saved'; msg.style.color = 'var(--green)'; }
+      else { msg.textContent = d.error || 'Save failed'; msg.style.color = 'var(--red)'; }
+    } catch (e) { msg.textContent = 'Save failed: ' + e.message; msg.style.color = 'var(--red)'; }
+  });
+});
+</script>
+
+{% endblock %}

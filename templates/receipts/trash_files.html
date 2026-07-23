@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Receipts Trash — Personal Financial Tracker{% endblock %}
+{% block page_title %}Receipts Trash{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div>
+
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:22px">
+    <div class="text-sm text-2" style="flex:1;line-height:1.6">
+      Files from <strong>Discard duplicate</strong> and <strong>Not a
+      receipt</strong> land here. Review each one full-size before deciding:
+      delete permanently, or restore to the inbox (the next scan will pick it
+      back up).
+    </div>
+    {% if files %}
+    <button class="btn btn-ghost btn-sm" id="tr-delete-all" style="color:var(--red)">
+      🗑 Delete all ({{ files | length }})
+    </button>
+    {% endif %}
+  </div>
+  <div id="tr-msg" class="text-xs" style="margin:-12px 0 14px;min-height:14px"></div>
+
+  {% if files %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:22px">
+    {% for f in files %}
+    <div class="card tr-card" data-name="{{ f.name }}">
+      <div class="card-header" style="gap:8px">
+        <h2 style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ f.name }}">{{ f.name }}</h2>
+        <span class="text-xs text-3" style="white-space:nowrap">{{ f.size_kb }} KB</span>
+      </div>
+      <div class="card-body">
+        <div style="border:1px solid var(--border);border-radius:var(--radius);background:#fff;
+                    min-height:420px;max-height:65vh;overflow:auto;display:flex;
+                    align-items:center;justify-content:center;margin-bottom:12px">
+          {% set url = '/api/receipts/preview?path=' + (f.path | urlencode) %}
+          {% if f.ext == 'pdf' %}
+            <embed src="{{ url }}#toolbar=0" type="application/pdf" style="width:100%;height:60vh">
+          {% elif f.ext in ('png','jpg','jpeg','gif','webp') %}
+            <img src="{{ url }}" style="max-width:100%;max-height:63vh;object-fit:contain;display:block">
+          {% else %}
+            <div style="padding:24px;text-align:center;color:var(--text-3);font-size:12px">
+              {{ f.ext | upper }} — no preview.
+              <a href="{{ url }}" target="_blank" style="color:var(--navy)">Open ↗</a>
+            </div>
+          {% endif %}
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm tr-restore">↩ Restore to inbox</button>
+          <button class="btn btn-ghost btn-sm tr-delete" style="margin-left:auto;color:var(--red)">
+            🗑 Delete permanently
+          </button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:60px 20px;text-align:center">
+    <div style="font-size:32px;margin-bottom:8px">🗑</div>
+    <div class="text-2">Trash is empty.</div>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+function trMsg(t, ok){const m=document.getElementById('tr-msg');m.textContent=t;m.style.color=ok?'var(--green)':'var(--red)';}
+async function trAct(name, action){
+  const r=await fetch('/api/receipts/trash-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,action})});
+  const d=await r.json(); if(!d.ok) throw new Error(d.error||'failed'); return d;
+}
+document.querySelectorAll('.tr-delete').forEach(b=>b.addEventListener('click', async ()=>{
+  const card=b.closest('.tr-card'), name=card.dataset.name;
+  if(!confirm(`Permanently delete "${name}"? This cannot be undone.`))return;
+  b.disabled=true;
+  try{await trAct(name,'delete'); card.remove(); trMsg(`✓ Deleted ${name}`,true);}
+  catch(e){b.disabled=false; trMsg(e.message,false);}
+}));
+document.querySelectorAll('.tr-restore').forEach(b=>b.addEventListener('click', async ()=>{
+  const card=b.closest('.tr-card'), name=card.dataset.name;
+  b.disabled=true;
+  try{await trAct(name,'restore'); card.remove(); trMsg(`✓ Restored ${name} to inbox — hit Scan inbox to re-process it`,true);}
+  catch(e){b.disabled=false; trMsg(e.message,false);}
+}));
+document.getElementById('tr-delete-all')?.addEventListener('click', async ()=>{
+  const n=document.querySelectorAll('.tr-card').length;
+  if(!confirm(`Permanently delete ALL ${n} file(s) in the trash? This cannot be undone.`))return;
+  try{
+    const d=await (await fetch('/api/receipts/empty-trash',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    trMsg(`✓ Deleted ${d.deleted} file(s) — reloading…`,true); setTimeout(()=>location.reload(),900);
+  }catch(e){trMsg('Failed: '+e.message,false);}
+});
+</script>
+
+{% endblock %}

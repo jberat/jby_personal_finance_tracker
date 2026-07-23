@@ -1,0 +1,526 @@
+{% extends "base.html" %}
+{% block title %}Investments — Personal Financial Tracker{% endblock %}
+{% block page_title %}Investments — Overview{% endblock %}
+
+{% block header_actions %}
+  {# Direct download — investments overview exports current state, no popup. #}
+  <a href="/export/investments-overview.xlsx" class="btn btn-ghost btn-sm">Export</a>
+  <a href="/investments/docs" class="btn btn-ghost btn-sm" title="How the investments tracker works">? Docs</a>
+  <button type="button" class="btn btn-primary btn-sm" onclick="openAddAcct()">+ Add account</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="text-xs" style="margin-bottom:14px;padding:8px 12px;border:1px solid var(--border);
+     border-radius:var(--radius);background:var(--surface-alt);color:var(--text-2)">
+  <strong style="color:var(--navy)">EXPERIMENTAL</strong> — the investments module is
+  still maturing; expect rough edges.
+</div>
+
+<style>
+/* Hoverable info bubble for column headers. */
+.hdr-info{position:relative;display:inline-block;margin-left:5px;cursor:help;
+  color:var(--text-3);font-size:12px;font-weight:600;vertical-align:middle;
+  text-transform:none;letter-spacing:normal}
+.hdr-info > .card{display:none;position:absolute;z-index:60;right:0;top:20px;width:250px;
+  background:var(--surface);border:1px solid var(--border-mid);border-radius:8px;
+  box-shadow:var(--shadow);padding:11px 13px;font-size:12.5px;font-weight:400;
+  color:var(--text-1);text-align:left;white-space:normal;line-height:1.5;
+  text-transform:none;letter-spacing:normal;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.hdr-info:hover > .card{display:block}
+th.ctr{text-align:center}
+</style>
+
+{# ═══ PERFORMANCE (lot engine, 2026-07-05) ═══════════════════════════════
+   Appears once history is loaded; until then, an onboarding pointer. #}
+{% if perf %}
+<div class="stat-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:18px">
+  <div class="stat-card"><div class="label">Portfolio value</div>
+    <div class="value" style="color:var(--navy)">${{ "{:,.2f}".format(perf.total_value) }}</div>
+    <div class="sub">from lots (snapshots keep it honest)</div></div>
+
+  <div class="stat-card"><div class="label">Money in — {{ year }}</div>
+    <div class="value">${{ "{:,.2f}".format(perf.year_you + perf.year_emp) }}</div>
+    <div class="sub">your capital ${{ "{:,.2f}".format(perf.year_you) }}{% if perf.year_emp > 0.005 %}
+      · <span style="color:#7a3ea8">employer ${{ "{:,.2f}".format(perf.year_emp) }}</span>{% endif %}</div></div>
+
+  <div class="stat-card"><div class="label">Money in — all-time</div>
+    <div class="value">${{ "{:,.2f}".format(perf.net_in) }}</div>
+    {% if perf.employer.given > 0.005 %}
+    <div class="sub">your capital ${{ "{:,.2f}".format(perf.your_capital) }}
+      · <span style="color:#7a3ea8">employer ${{ "{:,.2f}".format(perf.employer.given) }}</span></div>
+    {% else %}
+    <div class="sub">in ${{ "{:,.2f}".format(perf.total_in) }} · out ${{ "{:,.2f}".format(perf.total_out) }}</div>
+    {% endif %}</div>
+
+  <div class="stat-card"><div class="label">Lifetime gain</div>
+    <div class="value" style="color:{{ 'var(--green)' if perf.gain >= 0 else 'var(--red)' }}">
+      {{ '+' if perf.gain >= 0 else '' }}${{ "{:,.2f}".format(perf.gain) }}</div>
+    <div class="sub">{% if perf.xirr is not none %}{{ (perf.xirr*100)|round(2) }}% XIRR{% else %}—{% endif %}</div></div>
+
+  <div class="stat-card"><div class="label">Portfolio XIRR</div>
+    <div class="value">{% if perf.xirr is not none %}{{ (perf.xirr*100)|round(1) }}%{% else %}—{% endif %}</div>
+    <div class="sub">money-weighted, timing-adjusted, all-time</div></div>
+</div>
+
+{% if perf.series|length > 1 %}
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header"><h2>Value over time</h2>
+    <div id="inv-periods" style="display:flex;gap:4px"></div>
+  </div>
+  <div class="card-body">
+    <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px;flex-wrap:wrap" class="text-xs text-3">
+      <span><span style="display:inline-block;width:16px;height:3px;background:var(--navy);vertical-align:middle;border-radius:2px"></span>&nbsp;Portfolio value</span>
+      <span><span style="display:inline-block;width:16px;height:3px;background:#0d9488;vertical-align:middle;border-radius:2px"></span>&nbsp;Net contributions</span>
+      <span><span style="display:inline-block;width:11px;height:11px;background:#e8eef7;border:1px solid var(--border-mid);vertical-align:middle"></span>&nbsp;gain</span>
+      <span id="inv-hover" style="margin-left:auto;min-height:15px"></span>
+    </div>
+    <div id="inv-wrap" style="position:relative;width:100%;height:300px">
+      <svg id="inv-chart" style="display:block;width:100%;height:100%"></svg>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const SERIES = {{ perf.series | tojson }};
+  const CONTRIB = {{ perf.contrib | tojson }};
+  const NAVY='var(--navy)', TEAL='#0d9488', NAVY_FILL='#e8eef7', TEAL_FILL='#d7efe9';
+  const wrap=document.getElementById('inv-wrap'), svg=document.getElementById('inv-chart'),
+        hover=document.getElementById('inv-hover'), pbox=document.getElementById('inv-periods');
+  const PERIODS=[['3M',3],['6M',6],['1Y',12],['3Y',36],['ALL',null]];
+  let months = 12;
+  const t = s => new Date(s+'T00:00:00').getTime();
+  const money = v => '$'+Math.round(v).toLocaleString();
+  PERIODS.forEach(([lbl,m])=>{
+    const b=document.createElement('button'); b.textContent=lbl;
+    b.className='btn btn-ghost btn-sm'; b.style.cssText='padding:2px 9px;font-size:11px';
+    b.dataset.k = m===null?'all':m;
+    b.onclick=()=>{ months=m; mark(); draw(); };
+    pbox.appendChild(b);
+  });
+  function mark(){ [...pbox.children].forEach(b=>{
+    const on=(b.dataset.k==='all'&&months===null)||(+b.dataset.k===months);
+    b.style.background=on?'var(--navy)':''; b.style.color=on?'#fff':''; }); }
+  // linear-interpolate a series' value at time T
+  function interp(a,T){
+    if(T<=t(a[0][0])) return a[0][1];
+    if(T>=t(a[a.length-1][0])) return a[a.length-1][1];
+    for(let i=1;i<a.length;i++){ const t1=t(a[i][0]); if(t1>=T){ const t0=t(a[i-1][0]); const f=(t1-t0)?(T-t0)/(t1-t0):0; return a[i-1][1]+f*(a[i][1]-a[i-1][1]); } }
+    return a[a.length-1][1];
+  }
+  // clip a series to [start,end], adding interpolated endpoints so it spans the full window
+  function clip(a,start,end){
+    const iso=T=>new Date(T).toISOString().slice(0,10);
+    const inside=a.filter(p=>t(p[0])>=start && t(p[0])<=end);
+    const res=[[iso(start), interp(a,start)]];
+    inside.forEach(p=>{ if(t(p[0])>start && t(p[0])<end) res.push(p); });
+    res.push([iso(end), interp(a,end)]);
+    return res;
+  }
+  function draw(){
+    const W=wrap.clientWidth||700, H=wrap.clientHeight||300, pL=8,pR=54,pT=10,pB=22;
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    const end=Math.max(t(SERIES[SERIES.length-1][0]), t(CONTRIB[CONTRIB.length-1][0]));
+    const dataStart=Math.max(t(SERIES[0][0]), t(CONTRIB[0][0]));   // both series have data from here
+    const start=(months===null)?dataStart:Math.max(end-months*30.44*864e5, dataStart);
+    const s=clip(SERIES,start,end), c=clip(CONTRIB,start,end);
+    const x0=start, x1=end;
+    const ymax=Math.max(...s.concat(c).map(p=>p[1]))*1.06||1;
+    const X=v=>pL+((typeof v==='number'?v:t(v))-x0)/Math.max(x1-x0,1)*(W-pL-pR);
+    const Y=v=>H-pB-(v/ymax)*(H-pT-pB);
+    const line=p=>p.map((q,i)=>`${i?'L':'M'}${X(q[0]).toFixed(1)},${Y(q[1]).toFixed(1)}`).join('');
+    const area=p=>line(p)+`L${X(p[p.length-1][0]).toFixed(1)},${Y(0)} L${X(p[0][0]).toFixed(1)},${Y(0)} Z`;
+    let h='';
+    // fills: value area (navy tint) full height, contributions area (teal tint) ON TOP →
+    //  below contributions = teal, between contributions and value = navy tint (= gains)
+    h+=`<path d="${area(s)}" fill="${NAVY_FILL}"/>`;
+    h+=`<path d="${area(c)}" fill="${TEAL_FILL}"/>`;
+    for(let i=0;i<=4;i++){ const val=ymax*i/4,y=Y(val);
+      h+=`<line x1="${pL}" x2="${W-pR}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-width="1" opacity="0.7"/>`;
+      h+=`<text x="${W-pR+5}" y="${y+3}" font-size="10" fill="var(--text-3)">${val>=1000?'$'+Math.round(val/1000)+'k':'$'+Math.round(val)}</text>`; }
+    [s[0],s[Math.floor(s.length/2)],s[s.length-1]].forEach((p,i)=>{
+      h+=`<text x="${X(p[0])}" y="${H-6}" font-size="10" fill="var(--text-3)" text-anchor="${i===0?'start':i===2?'end':'middle'}">${p[0].slice(0,7)}</text>`; });
+    h+=`<path d="${line(c)}" fill="none" stroke="${TEAL}" stroke-width="2"/>`;
+    h+=`<path d="${line(s)}" fill="none" stroke="${NAVY}" stroke-width="2"/>`;
+    h+=`<line id="inv-x" y1="${pT}" y2="${H-pB}" stroke="var(--border-mid)" style="display:none"/>`;
+    h+=`<circle id="inv-dv" r="4" fill="${NAVY}" style="display:none"/><circle id="inv-dc" r="4" fill="${TEAL}" style="display:none"/>`;
+    svg.innerHTML=h;
+    svg._s=s; svg._X=X; svg._Y=Y; svg._W=W; svg._x0=x0; svg._x1=x1; svg._pL=pL; svg._pR=pR;
+  }
+  svg.addEventListener('mousemove',e=>{
+    const s=svg._s; if(!s)return; const r=svg.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width*svg._W;
+    // nearest value point (snapshot) for a clean date
+    let best=s[0],bd=1e18; s.forEach(p=>{const d=Math.abs(svg._X(p[0])-px); if(d<bd){bd=d;best=p;}});
+    const vv=best[1], cv=interp(CONTRIB, t(best[0])), gain=vv-cv;
+    const xc=svg._X(best[0]);
+    const xl=svg.querySelector('#inv-x'); xl.setAttribute('x1',xc); xl.setAttribute('x2',xc); xl.style.display='';
+    const dv=svg.querySelector('#inv-dv'); dv.setAttribute('cx',xc); dv.setAttribute('cy',svg._Y(vv)); dv.style.display='';
+    const dc=svg.querySelector('#inv-dc'); dc.setAttribute('cx',xc); dc.setAttribute('cy',svg._Y(cv)); dc.style.display='';
+    hover.innerHTML=`<strong>${best[0]}</strong> &nbsp; <span style="color:${NAVY}">value ${money(vv)}</span> · `
+      +`<span style="color:${TEAL}">in ${money(cv)}</span> · `
+      +`<span style="color:${gain>=0?'var(--green)':'var(--red)'}">${gain>=0?'+':''}${money(gain)} gain</span>`;
+  });
+  svg.addEventListener('mouseleave',()=>{['#inv-x','#inv-dv','#inv-dc'].forEach(id=>{const el=svg.querySelector(id);if(el)el.style.display='none';});hover.textContent='';});
+  window.addEventListener('resize',draw);
+  mark(); draw();
+})();
+</script>
+{% endif %}
+
+<div class="card" style="margin-bottom:24px">
+  <div class="card-header"><h2>Performance by account</h2>
+    {% if perf.n_closed or perf.show_closed %}
+    <a class="btn btn-ghost btn-sm"
+       href="/investments/overview{% if not perf.show_closed %}?closed=1{% endif %}">
+      {% if perf.show_closed %}Hide closed accounts{% else %}Show closed accounts ({{ perf.n_closed }}){% endif %}</a>
+    {% endif %}
+  </div>
+  <div class="card-body" style="padding:0">
+    <table class="trx-table-uniform" style="margin:0;font-size:12.5px;vertical-align:middle">
+      <thead><tr>
+        <th class="left">Account</th>
+        <th class="ctr">Value<span class="hdr-info">ⓘ<span class="card">Current worth of this account — your latest snapshot plus any contributions/moves since.</span></span></th>
+        <th class="ctr">Principal<span class="hdr-info">ⓘ<span class="card">The original dollars still invested here (your cost basis) — the sum of the open lots' original amounts.</span></span></th>
+        <th class="ctr">Gain<span class="hdr-info">ⓘ<span class="card">Value minus principal — total gain or loss on the money still in this account.</span></span></th>
+        <th class="ctr">XIRR<span class="hdr-info">ⓘ<span class="card">Money-weighted annual return: the rate you actually earned, accounting for how much you put in and when. Like CAGR, adjusted for deposits/withdrawals at different times.</span></span></th>
+        <th class="ctr">TWR /yr<span class="hdr-info">ⓘ<span class="card">Time-weighted annual return: how the investments themselves performed with your contribution timing stripped out — comparable to a fund/benchmark. Needs 2+ snapshots.</span></span></th>
+        <th class="ctr">Lots<span class="hdr-info">ⓘ<span class="card">Number of separate contributions still held here, each tracked with its own start date.</span></span></th>
+        <th class="ctr">Last snapshot<span class="hdr-info">ⓘ<span class="card">The most recent date you recorded this account's actual statement value.</span></span></th>
+      </tr></thead>
+      <tbody>
+      {% for g in perf.groups_perf %}
+        <tr style="background:var(--bg-2,#f3f5f8)">
+          <td class="left" style="font-weight:700;color:var(--text-1)">{{ g.l1 }}</td>
+          <td colspan="7"></td>
+        </tr>
+        {% for r in g.rows %}
+        <tr style="vertical-align:middle{% if not r.acct.active %};opacity:.55{% endif %}">
+          <td class="left" style="padding-left:18px"><a href="/investments/account/{{ r.acct.id }}"
+              style="color:var(--navy);font-weight:600">{{ r.acct.name }}</a>
+            {% if r.acct.provider %}<span class="text-xs text-3"> · {{ r.acct.provider }}</span>{% endif %}
+            {% if not r.acct.active %}<span class="text-xs text-3"> (closed)</span>{% endif %}</td>
+          <td style="text-align:center">${{ "{:,.2f}".format(r.value) }}</td>
+          <td style="text-align:center">${{ "{:,.2f}".format(r.principal) }}</td>
+          <td style="text-align:center;color:{{ 'var(--green)' if r.gain >= 0 else 'var(--red)' }}">
+            {{ '+' if r.gain >= 0 else '' }}${{ "{:,.2f}".format(r.gain) }}</td>
+          <td style="text-align:center">{% if r.xirr is not none %}{{ (r.xirr*100)|round(1) }}%{% else %}—{% endif %}</td>
+          <td style="text-align:center">{% if r.twr and r.twr.annualized is not none %}{{ (r.twr.annualized*100)|round(1) }}%{% else %}—{% endif %}</td>
+          <td style="text-align:center">{{ r.n_lots }}</td>
+          <td style="text-align:center;white-space:nowrap">{{ r.last_snap.event_date if r.last_snap else '—' }}</td>
+        </tr>
+        {% endfor %}
+        <tr style="font-weight:600;border-bottom:1px solid var(--border-mid);color:var(--text-2)">
+          <td class="left" style="padding-left:18px">{{ g.l1 }} subtotal</td>
+          <td style="text-align:center">${{ "{:,.2f}".format(g.value) }}</td>
+          <td style="text-align:center">${{ "{:,.2f}".format(g.principal) }}</td>
+          <td style="text-align:center;color:{{ 'var(--green)' if g.gain >= 0 else 'var(--red)' }}">{{ '+' if g.gain >= 0 else '' }}${{ "{:,.2f}".format(g.gain) }}</td>
+          <td colspan="4"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr style="font-weight:700;border-top:2px solid var(--border-mid)">
+        <td class="left">Total portfolio</td>
+        <td style="text-align:center">${{ "{:,.2f}".format(perf.grand.value) }}</td>
+        <td style="text-align:center">${{ "{:,.2f}".format(perf.grand.principal) }}</td>
+        <td style="text-align:center;color:{{ 'var(--green)' if perf.grand.gain >= 0 else 'var(--red)' }}">{{ '+' if perf.grand.gain >= 0 else '' }}${{ "{:,.2f}".format(perf.grand.gain) }}</td>
+        <td style="text-align:center">{% if perf.xirr is not none %}{{ (perf.xirr*100)|round(1) }}%{% endif %}</td>
+        <td colspan="3"></td>
+      </tr></tfoot>
+    </table>
+  </div>
+</div>
+
+{# ── Employer contributions rollup ─────────────────────────────────────
+   "How much have employers given me, and what has it grown to?" — the
+   free money that came straight from an employer, never through your pocket. #}
+{% if perf.employer.given > 0.005 %}
+<div class="card" style="margin-bottom:24px;border-color:#e2d3f2">
+  <div class="card-header" style="background:#f7f1fc">
+    <h2 style="color:#6a3596">Employer contributions</h2>
+    <span class="text-sm" style="color:#6a3596">
+      given ${{ "{:,.2f}".format(perf.employer.given) }}
+      · now worth ${{ "{:,.2f}".format(perf.employer.value) }}
+      · {% if perf.employer.gain >= 0 %}+{% endif %}${{ "{:,.2f}".format(perf.employer.gain) }}</span>
+  </div>
+  <div class="card-body" style="padding:0">
+    <div class="text-xs text-3" style="padding:10px 14px 0">
+      Money employers put straight into your investment accounts — excluded from
+      "your capital" above and never counted as income you earned.</div>
+    <table class="trx-table-uniform" style="margin:8px 0 0;font-size:12.5px;vertical-align:middle">
+      <thead><tr>
+        <th class="left">Year<span class="hdr-info">ⓘ<span class="card">The year this employer money was originally contributed.</span></span></th>
+        <th class="left">Original account<span class="hdr-info">ⓘ<span class="card">Where the money was first contributed — the employer's plan at the time (e.g. a previous employer's Trad 401k).</span></span></th>
+        <th class="left">Current account<span class="hdr-info">ⓘ<span class="card">Where that money lives now after any rollovers (e.g. your current Trad 401k). Same as Original if it never moved.</span></span></th>
+        <th class="ctr">Given<span class="hdr-info">ⓘ<span class="card">The dollars the employer originally put in.</span></span></th>
+        <th class="ctr">Now worth<span class="hdr-info">ⓘ<span class="card">What that employer money has grown to today.</span></span></th>
+        <th class="ctr">Gain<span class="hdr-info">ⓘ<span class="card">Now worth minus given — growth on the employer money.</span></span></th>
+      </tr></thead>
+      <tbody>
+      {% for e in perf.employer.rows %}
+        <tr style="vertical-align:middle">
+          <td class="left">{{ e.year }}</td>
+          <td class="left">{{ e.original_account }}</td>
+          <td class="left">{{ e.current_account }}{% if e.current_account == e.original_account %}<span class="text-xs text-3"> (never moved)</span>{% endif %}</td>
+          <td style="text-align:center">${{ "{:,.2f}".format(e.given) }}</td>
+          <td style="text-align:center">${{ "{:,.2f}".format(e.value) }}</td>
+          <td style="text-align:center;color:{{ 'var(--green)' if e.gain >= 0 else 'var(--red)' }}">
+            {{ '+' if e.gain >= 0 else '' }}${{ "{:,.2f}".format(e.gain) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr style="font-weight:700;border-top:2px solid var(--border-mid)">
+        <td class="left" colspan="3">Total</td>
+        <td style="text-align:center">${{ "{:,.2f}".format(perf.employer.given) }}</td>
+        <td style="text-align:center">${{ "{:,.2f}".format(perf.employer.value) }}</td>
+        <td style="text-align:center;color:{{ 'var(--green)' if perf.employer.gain >= 0 else 'var(--red)' }}">
+          {{ '+' if perf.employer.gain >= 0 else '' }}${{ "{:,.2f}".format(perf.employer.gain) }}</td>
+      </tr></tfoot>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% else %}
+<p class="text-sm text-3" style="margin:6px 0 16px">
+  No investment history loaded yet — import your ledger or add events, and this
+  page fills in with value, returns, and the per-account breakdown. Your
+  accounts are below; click any to add snapshots or edit details.</p>
+<div class="card" style="margin-bottom:24px">
+  <div class="card-header"><h2>Accounts</h2></div>
+  <div class="card-body" style="padding:0">
+    <table class="trx-table-uniform" style="margin:0;font-size:13px">
+      <thead><tr><th class="left">Account</th><th class="left">Group</th>
+        <th class="left">Provider</th></tr></thead>
+      <tbody>
+      {% for l1 in ['Retirement', 'General Savings', 'Alternatives'] %}
+        {% for a in groups.get(l1, []) %}
+          <tr>
+            <td class="left"><a href="/investments/account/{{ a.id }}"
+                style="color:var(--navy);font-weight:600">{{ a.name }}</a></td>
+            <td class="left text-3">{{ l1 }}</td>
+            <td class="left text-3">{{ a.provider or '—' }}</td>
+          </tr>
+        {% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Add-account modal ─────────────────────────────────────────────── -->
+<div id="addAcctOverlay" style="display:none;position:fixed;inset:0;z-index:200;
+     background:rgba(0,0,0,.35)" onclick="if(event.target===this)closeAddAcct()">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+       width:min(460px,92vw);background:var(--surface);border:1px solid var(--border-mid);
+       border-radius:12px;box-shadow:var(--shadow);padding:20px 22px">
+    <h2 style="margin:0 0 4px">Add investment account</h2>
+    <div class="text-xs text-3" style="margin-bottom:14px">
+      Create the account first (including long-dead ones like old CDs), then
+      load its history via the CSV import or manual entry.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <label style="grid-column:1/3">Name
+        <input id="aa-name" class="form-control" placeholder="e.g. My Brokerage" autocomplete="off"></label>
+      <label>Group
+        <select id="aa-group" class="form-control">
+          <option>Retirement</option>
+          <option selected>General Savings</option>
+          <option>Alternatives</option>
+        </select></label>
+      <label>Provider
+        <input id="aa-provider" class="form-control" placeholder="e.g. your bank or brokerage" autocomplete="off"></label>
+      <label>Opened date
+        <input id="aa-opened" type="date" class="form-control"></label>
+      <label style="grid-column:1/3">Notes
+        <input id="aa-notes" class="form-control" placeholder="optional" autocomplete="off"></label>
+    </div>
+    <div id="aa-msg" class="text-xs" style="color:var(--red);margin-top:10px;min-height:14px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="closeAddAcct()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="submitAddAcct()">Create account</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openAddAcct(){
+  document.getElementById('aa-msg').textContent='';
+  document.getElementById('addAcctOverlay').style.display='block';
+  document.getElementById('aa-name').focus();
+}
+function closeAddAcct(){ document.getElementById('addAcctOverlay').style.display='none'; }
+async function submitAddAcct(){
+  const name = document.getElementById('aa-name').value.trim();
+  const m = document.getElementById('aa-msg');
+  if(!name){ m.textContent='Name is required.'; return; }
+  const body = {
+    name,
+    group:    document.getElementById('aa-group').value,
+    provider: document.getElementById('aa-provider').value,
+    opened_date: document.getElementById('aa-opened').value,
+    notes:    document.getElementById('aa-notes').value,
+  };
+  const r = await fetch('/api/investments/account/add', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if(d.ok){ if(window._txSavedToast)_txSavedToast(); location.href='/investments/account/'+d.id; }
+  else { m.textContent = d.error || 'Failed to create account.'; }
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape')closeAddAcct(); });
+</script>
+
+{% if False %}{# LEGACY cash-flow overview — RETIRED 2026-07-07. Superseded by
+   the lot-engine performance layer above (real source of truth). Kept disabled
+   rather than deleted so numbers can be cross-checked against the old
+   calculation if ever needed; safe to remove entirely. #}
+<div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:24px">
+
+  <div class="stat-card">
+    <div class="label">Total Value</div>
+    <div class="value" style="color:var(--navy)">${{ "{:,.2f}".format(grand_total) }}</div>
+    <div class="sub" style="margin-bottom:8px">
+      Invested principal: <strong>${{ "{:,.2f}".format(grand_invested) }}</strong>
+      {% set gain = grand_total - grand_invested %}
+      {% if gain | abs >= 0.005 %}
+        &nbsp;·&nbsp;
+        <span style="color:{% if gain >= 0 %}var(--green){% else %}var(--red){% endif %}">
+          {{ '+' if gain >= 0 else '' }}${{ "{:,.2f}".format(gain) }}
+          {% if grand_invested %}({{ "{:.1f}".format(gain / grand_invested * 100) }}%){% endif %}
+        </span>
+      {% endif %}
+    </div>
+    <table style="width:100%;font-size:13px;border-top:1px solid var(--border);margin-top:6px">
+      {% for l1 in ['Retirement', 'General Savings', 'Alternatives'] %}
+        {% set gt = group_totals.get(l1, {'value': 0}) %}
+        <tr>
+          <td style="padding:6px 0;color:var(--text-2)">{{ l1 }}</td>
+          <td style="padding:6px 0;text-align:right;font-family:var(--font-mono);font-weight:500">
+            ${{ "{:,.2f}".format(gt.value) }}
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="stat-card">
+    <div class="label">{{ year }} Contributions</div>
+    {% set total_contrib = group_totals.values() | map(attribute='contrib_net') | sum %}
+    <div class="value" style="color:var(--navy)">${{ "{:,.2f}".format(total_contrib) }}</div>
+    <div class="sub" style="margin-bottom:8px">
+      Net new capital deployed (excl. employer contributions)
+    </div>
+    <table style="width:100%;font-size:13px;border-top:1px solid var(--border);margin-top:6px">
+      {% for l1 in ['Retirement', 'General Savings', 'Alternatives'] %}
+        {% set gt = group_totals.get(l1, {'contrib_net': 0}) %}
+        {% if gt.contrib_net | abs >= 0.005 %}
+          <tr>
+            <td style="padding:6px 0;color:var(--text-2);font-weight:500">{{ l1 }}</td>
+            <td style="padding:6px 0;text-align:right;font-family:var(--font-mono);font-weight:500">
+              {% if gt.contrib_net < 0 %}-{% endif %}${{ "{:,.2f}".format(gt.contrib_net | abs) }}
+            </td>
+          </tr>
+          {% for a in groups.get(l1, []) %}
+            {% if a.contrib_net | abs >= 0.005 %}
+              <tr>
+                <td style="padding:3px 0 3px 14px;color:var(--text-3);font-size:12px">
+                  ↳ {{ a.name }}
+                </td>
+                <td style="padding:3px 0;text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--text-3)">
+                  {% if a.contrib_net < 0 %}-{% endif %}${{ "{:,.2f}".format(a.contrib_net | abs) }}
+                </td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+    </table>
+
+    {# Employer 401(k) match — tracked via the 'employer-contribution' tag,
+       shown separately from "my pocket" net new capital above. #}
+    {% set emp_total = (employer_contrib_2026.values() | sum) if employer_contrib_2026 else 0 %}
+    {% if emp_total | abs >= 0.005 %}
+    <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;color:var(--text-2)">
+        <span style="font-weight:600">+ Employer 401(k) match</span>
+        <span style="font-family:var(--font-mono);font-weight:600">${{ "{:,.2f}".format(emp_total) }}</span>
+      </div>
+      {% for name, amt in employer_contrib_2026.items() %}
+        {% if amt | abs >= 0.005 %}
+        <div style="display:flex;justify-content:space-between;color:var(--text-3);font-size:12px;padding:2px 0 0 14px">
+          <span>↳ {{ name }}</span>
+          <span style="font-family:var(--font-mono)">${{ "{:,.2f}".format(amt) }}</span>
+        </div>
+        {% endif %}
+      {% endfor %}
+      <div style="color:var(--text-3);font-size:11px;margin-top:4px">
+        Already included in “Transfers In”; excluded from the net-new-capital figure above.
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{# ── Per-L1 detail tables: new column set ─────────────────────────────── #}
+{% for l1 in ['Retirement', 'General Savings', 'Alternatives'] %}
+  {% set items = groups.get(l1, []) %}
+  {% if items %}
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <h2>{{ l1 }}</h2>
+        <span class="text-sm text-3">${{ "{:,.2f}".format(group_totals.get(l1, {}).get('value', 0)) }}</span>
+      </div>
+      <div class="card-body" style="padding:0">
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Provider</th>
+              <th class="right">Opening<span class="hdr-info">ⓘ<span class="card">Opening balance as of 1/1/{{ year }}, including all prior investment gains. A snapshot of the account's total value at the start of the year.</span></span></th>
+              <th class="right">Transfers In ({{ year }})<span class="hdr-info">ⓘ<span class="card">Money moved <b>into</b> this account during {{ year }} — your contributions, employer 401(k) match, and any inter-account moves in.</span></span></th>
+              <th class="right">Transfers Out ({{ year }})<span class="hdr-info">ⓘ<span class="card">Money moved <b>out</b> of this account during {{ year }} — withdrawals and any inter-account moves out.</span></span></th>
+              <th class="right">Gain (Loss)<span class="hdr-info">ⓘ<span class="card">Change in value beyond invested principal — market gains/losses and value adjustments since opening.</span></span></th>
+              <th class="right">Current Value<span class="hdr-info">ⓘ<span class="card">Opening + lifetime net transfers + Gain (Loss). The latest total value of the account.</span></span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in items %}
+              <tr>
+                <td style="font-weight:500"><a href="/investments/account/{{ a.id }}"
+                    style="color:var(--navy);font-weight:600">{{ a.name }}</a></td>
+                <td class="dim text-sm">{{ a.provider }}</td>
+                <td class="right" style="font-family:var(--font-mono);font-size:13px">
+                  {% if a.opening_balance | abs < 0.005 %}—{% else %}${{ "{:,.2f}".format(a.opening_balance) }}{% endif %}
+                </td>
+                <td class="right" style="font-family:var(--font-mono);font-size:13px;color:var(--text-2)">
+                  {% if a.transfers_in | abs < 0.005 %}—{% else %}${{ "{:,.2f}".format(a.transfers_in) }}{% endif %}
+                </td>
+                <td class="right" style="font-family:var(--font-mono);font-size:13px;color:var(--text-2)">
+                  {% if a.transfers_out | abs < 0.005 %}—{% else %}${{ "{:,.2f}".format(a.transfers_out) }}{% endif %}
+                </td>
+                <td class="right" style="font-family:var(--font-mono);font-size:13px;
+                                          color:{% if a.gain_loss > 0.005 %}var(--green){% elif a.gain_loss < -0.005 %}var(--red){% else %}var(--text-3){% endif %}">
+                  {% if a.gain_loss | abs < 0.005 %}—{% else %}{% if a.gain_loss < 0 %}-{% endif %}${{ "{:,.2f}".format(a.gain_loss | abs) }}{% endif %}
+                </td>
+                <td class="right" style="font-family:var(--font-mono);font-weight:600;color:var(--navy)">
+                  ${{ "{:,.2f}".format(a.value) }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+{% endfor %}
+
+<div class="text-xs text-3" style="margin-top:20px">
+  Current Value = Opening + lifetime net transfers + Gain (Loss) adjustments.
+  Transfers In/Out columns show {{ year }} flows only.
+  Inter-investment moves (e.g. Trad IRA → Roth IRA) appear as Out on the source and In on the destination.
+  Employer 401K matches are tagged separately so the Contributions card can break them out.
+</div>
+{% endif %}{# /LEGACY cash-flow overview #}
+
+{% endblock %}

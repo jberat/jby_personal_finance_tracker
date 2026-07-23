@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Trash{% endblock %}
+{% block page_title %}Trash{% endblock %}
+{% block content %}
+{# Full content width — matches the app's other table pages (Review Queue,
+   Expenses/Income transactions), which don't cap their tables. #}
+<div>
+  <p class="text-sm" style="color:var(--text-3);margin-bottom:18px">
+    Deleted transactions and removed review-queue rows land here. Restore puts them
+    back (transactions → active, review rows → review queue). Purge deletes for good.
+  </p>
+
+  <h3 style="margin:18px 0 8px">Deleted transactions ({{ trx|length }})</h3>
+  {% if trx %}
+  <table class="data-table" style="width:100%">
+    <thead><tr>
+      <th style="text-align:left">Date</th><th style="text-align:left">Vendor</th>
+      <th style="text-align:right">Amount</th><th>Account</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for t in trx %}
+      <tr id="trx-{{ t.id }}">
+        <td class="mono" style="font-size:12px">{{ t.trx_date }}</td>
+        <td>{{ t.vendor or t.raw_description[:40] }}</td>
+        <td style="text-align:right">{{ '%.2f'|format(t.amount) }}</td>
+        <td style="font-size:12px">{{ t.account_name }}</td>
+        <td style="white-space:nowrap;text-align:right">
+          <button class="btn btn-ghost btn-sm" onclick="restoreTrx({{ t.id }})">Restore</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="purgeTrx({{ t.id }})">Purge</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="text-sm" style="color:var(--text-3)">None.</p>{% endif %}
+
+  <h3 style="margin:28px 0 8px">Removed review-queue rows ({{ stg|length }})</h3>
+  {% if stg %}
+  <table class="data-table" style="width:100%">
+    <thead><tr>
+      <th style="text-align:left">Date</th><th style="text-align:left">Vendor</th>
+      <th style="text-align:right">Amount</th><th>Reason</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for s in stg %}
+      <tr id="stg-{{ s.id }}">
+        <td class="mono" style="font-size:12px">{{ s.trx_date }}</td>
+        <td>{{ s.vendor or s.raw_description[:40] }}</td>
+        <td style="text-align:right">{{ '%.2f'|format(s.amount) }}</td>
+        <td style="font-size:11px;color:var(--text-3)">{{ s.flag_reason or '' }}</td>
+        <td style="white-space:nowrap;text-align:right">
+          <button class="btn btn-ghost btn-sm" onclick="restoreStg({{ s.id }})">Restore</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="purgeStg({{ s.id }})">Purge</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="text-sm" style="color:var(--text-3)">None.</p>{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function post(url){ const r= await fetch(url,{method:'POST'}); return r.json(); }
+function drop(id){ const el=document.getElementById(id); if(el) el.remove(); }
+async function restoreTrx(id){ const j=await post(`/api/transactions/${id}/restore`); if(j.ok) drop(`trx-${id}`); else alert(j.error||'Failed'); }
+async function purgeTrx(id){ if(!confirm('Permanently delete this transaction?'))return; const j=await post(`/api/transactions/${id}/purge`); if(j.ok) drop(`trx-${id}`); else alert(j.error||'Failed'); }
+async function restoreStg(id){ const j=await post(`/api/review/${id}/restore`); if(j.ok) drop(`stg-${id}`); else alert(j.error||'Failed'); }
+async function purgeStg(id){ if(!confirm('Permanently delete this row?'))return; const j=await post(`/api/staging/${id}/purge`); if(j.ok) drop(`stg-${id}`); else alert(j.error||'Failed'); }
+</script>
+{% endblock %}

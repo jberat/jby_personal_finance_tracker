@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}Budget Values — Personal Financial Tracker{% endblock %}
+{% block page_title %}Budget Values{% endblock %}
+
+{% block back_link %}
+  <a href="/settings/assumptions"
+     class="back-link" style="font-size:13px;color:var(--text-3);
+            text-decoration:none;margin-right:12px">
+    ← Assumptions
+  </a>
+{% endblock %}
+
+{% block header_actions %}
+  <form method="GET" style="display:flex;align-items:center;gap:8px">
+    <label class="text-sm text-3" for="year-select">Year:</label>
+    <select id="year-select" name="year" class="form-control"
+            style="width:auto;font-size:13px;padding:5px 9px"
+            onchange="this.form.submit()">
+      {% for y in available_years %}
+        <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+      {# Allow user to enter a brand-new year via URL — surface it if not in list #}
+      {% if year not in available_years %}
+        <option value="{{ year }}" selected>{{ year }}</option>
+      {% endif %}
+    </select>
+  </form>
+{% endblock %}
+
+{% block content %}
+
+<div>
+
+  <div class="text-sm text-2" style="margin-bottom:20px;line-height:1.6">
+    Annual expense budgets. Edits save automatically and feed the
+    <strong>Tools → Actuals vs. Budget</strong> view.
+    Budget at the L1 level, or click ▶ to budget individual L2s — as soon
+    as any L2 has a budget, the L1's number becomes the <em>sum of its
+    L2s</em> (the L1 field locks and shows the rolled-up total).
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="padding:0">
+      <table class="trx-table-uniform" style="margin:0">
+        <thead>
+          <tr>
+            <th class="left">L1 Category</th>
+            <th class="right" style="width:200px">Annual Budget</th>
+            <th class="right" style="width:160px">Monthly (calc)</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+          {% set key = r.l1 | replace(' ','_') | replace('&','_') %}
+          <tr data-l1="{{ r.l1 }}" class="bv-l1-row" data-key="{{ key }}">
+            <td class="left" style="font-weight:500;color:var(--text-1)">
+              <span class="bv-expand" data-key="{{ key }}"
+                    style="cursor:pointer;display:inline-block;width:16px;
+                           color:var(--text-3);user-select:none">▶</span>
+              {{ r.l1 }}
+              <span class="bv-l2-flag text-3" data-key="{{ key }}"
+                    style="font-size:11px;margin-left:6px;
+                           {% if not r.has_l2_budgets %}display:none{% endif %}">
+                Σ from L2s</span>
+            </td>
+            <td class="right">
+              <div style="display:inline-flex;align-items:center;gap:4px;
+                          font-family:var(--font-mono);font-size:13px">
+                <span style="color:var(--text-3)">$</span>
+                <input type="number"
+                       class="bv-input"
+                       step="1"
+                       min="0"
+                       value="{{ '%.0f' % r.effective if r.effective else '' }}"
+                       placeholder="0"
+                       data-l1="{{ r.l1 }}"
+                       data-key="{{ key }}"
+                       data-flat="{{ '%.2f' % r.amount }}"
+                       data-prev="{{ '%.2f' % r.effective }}"
+                       {% if r.has_l2_budgets %}disabled
+                       title="Computed from this category's L2 budgets"{% endif %}
+                       style="width:120px;text-align:right;
+                              font-family:var(--font-mono);font-size:13px;
+                              padding:4px 8px;border:1px solid var(--border);
+                              border-radius:var(--radius);background:var(--surface)">
+                <span class="bv-saved" style="font-size:11px;color:var(--text-3);
+                       width:14px;display:inline-block;text-align:left"></span>
+              </div>
+            </td>
+            <td class="right">
+              <span class="bv-monthly"
+                    style="font-family:var(--font-mono);font-size:13px;
+                           color:var(--text-2)">
+                {{ '$%s' % '{:,.0f}'.format(r.effective / 12) if r.effective else '—' }}
+              </span>
+            </td>
+          </tr>
+          {% for x in r.l2_rows %}
+          <tr class="bv-l2-row" data-parent="{{ key }}" style="display:none;background:#FAFAF8">
+            <td class="left" style="padding-left:36px;color:var(--text-2);font-size:12.5px">
+              {{ x.l2 }}
+            </td>
+            <td class="right">
+              <div style="display:inline-flex;align-items:center;gap:4px;
+                          font-family:var(--font-mono);font-size:12.5px">
+                <span style="color:var(--text-3)">$</span>
+                <input type="number" class="bv-input" step="1" min="0"
+                       value="{{ '%.0f' % x.amount if x.amount else '' }}"
+                       placeholder="0"
+                       data-l1="{{ r.l1 }}" data-l2="{{ x.l2 }}" data-key="{{ key }}"
+                       data-prev="{{ '%.2f' % x.amount }}"
+                       style="width:110px;text-align:right;
+                              font-family:var(--font-mono);font-size:12.5px;
+                              padding:3px 8px;border:1px solid var(--border);
+                              border-radius:var(--radius);background:var(--surface)">
+                <span class="bv-saved" style="font-size:11px;color:var(--text-3);
+                       width:14px;display:inline-block;text-align:left"></span>
+              </div>
+            </td>
+            <td class="right">
+              <span class="bv-monthly" style="font-family:var(--font-mono);
+                     font-size:12px;color:var(--text-3)">
+                {{ '$%s' % '{:,.0f}'.format(x.amount / 12) if x.amount else '—' }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--border)">
+            <td class="left" style="font-weight:700;color:var(--text-1);
+                                    padding-top:14px">Total</td>
+            <td class="right" style="font-weight:700;color:var(--text-1);
+                                     font-size:13px;padding-top:14px">
+              <span id="bv-total" style="display:inline-block;width:140px;text-align:center">
+                ${{ '{:,.0f}'.format(total) }}</span>
+            </td>
+            <td class="right" style="font-weight:700;color:var(--text-2);
+                                     font-size:13px;padding-top:14px">
+              <span id="bv-total-monthly">${{ '{:,.0f}'.format(total / 12) if total else '0' }}</span>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  {# ── Income budgets — one editable line per income L1 ── #}
+  <div class="card" style="margin-top:20px">
+    <div class="card-header"><h2>Income budgets</h2></div>
+    <div class="card-body" style="padding:0">
+      <table class="trx-table-uniform" style="margin:0">
+        <thead>
+          <tr>
+            <th class="left">Line</th>
+            <th class="right" style="width:200px">Annual Budget</th>
+            <th class="right" style="width:160px">Monthly (calc)</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in income_rows %}
+          <tr>
+            <td class="left" style="font-weight:500;color:var(--text-1)">{{ r.l1 }}</td>
+            <td class="right">
+              <div style="display:inline-flex;align-items:center;gap:4px;
+                          font-family:var(--font-mono);font-size:13px">
+                <span style="color:var(--text-3)">$</span>
+                <input type="number" class="bv-input" data-income="1" step="1" min="0"
+                       value="{{ '%.0f' % r.amount if r.amount else '' }}" placeholder="0"
+                       data-l1="{{ r.l1 }}" data-prev="{{ '%.2f' % r.amount }}"
+                       style="width:120px;text-align:right;
+                              font-family:var(--font-mono);font-size:13px;
+                              padding:4px 8px;border:1px solid var(--border);
+                              border-radius:var(--radius);background:var(--surface)">
+                <span class="bv-saved" style="font-size:11px;color:var(--text-3);
+                       width:14px;display:inline-block;text-align:left"></span>
+              </div>
+            </td>
+            <td class="right">
+              <span class="bv-monthly" style="font-family:var(--font-mono);font-size:13px;color:var(--text-2)">
+                {{ '$%s' % '{:,.0f}'.format(r.amount / 12) if r.amount else '—' }}</span>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const YEAR   = {{ year|tojson }};
+
+  function fmtMoney(n) {
+    if (!n) return '—';
+    return '$' + Math.round(n).toLocaleString();
+  }
+  function fmtMoneyTotal(n) {
+    return '$' + Math.round(n).toLocaleString();
+  }
+
+  // ── L2 expand/collapse ─────────────────────────────────────────────────
+  document.querySelectorAll('.bv-expand').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.key;
+      const rows = document.querySelectorAll(`.bv-l2-row[data-parent="${key}"]`);
+      const open = rows.length && rows[0].style.display !== 'none';
+      rows.forEach(r => r.style.display = open ? 'none' : '');
+      btn.textContent = open ? '▶' : '▼';
+    });
+  });
+
+  // ── L2 rollup: when any L2 under an L1 has a budget, the L1 input locks
+  // and shows the sum of its L2s; when all L2s go back to 0, it unlocks
+  // and restores the flat L1 value. ─────────────────────────────────────
+  function refreshL1(key) {
+    const l1Input = document.querySelector(`.bv-input[data-key="${key}"]:not([data-l2])`);
+    if (!l1Input) return;
+    let sum = 0;
+    document.querySelectorAll(`.bv-input[data-key="${key}"][data-l2]`).forEach(i => {
+      sum += parseFloat(i.value) || 0;
+    });
+    const flag = document.querySelector(`.bv-l2-flag[data-key="${key}"]`);
+    const row = l1Input.closest('tr');
+    if (sum > 0) {
+      l1Input.value = Math.round(sum);
+      l1Input.disabled = true;
+      l1Input.title = "Computed from this category's L2 budgets";
+      if (flag) flag.style.display = '';
+      const mc = row.querySelector('.bv-monthly');
+      if (mc) mc.textContent = fmtMoney(sum / 12);
+    } else {
+      l1Input.disabled = false;
+      l1Input.title = '';
+      const flat = parseFloat(l1Input.dataset.flat) || 0;
+      l1Input.value = flat ? Math.round(flat) : '';
+      if (flag) flag.style.display = 'none';
+      const mc = row.querySelector('.bv-monthly');
+      if (mc) mc.textContent = fmtMoney(flat / 12);
+    }
+  }
+
+  function recomputeTotal() {
+    let total = 0, income = 0;
+    document.querySelectorAll('.bv-l1-row .bv-input').forEach(inp => {
+      total += parseFloat(inp.value) || 0;   // L1 inputs already show effective
+    });
+    document.querySelectorAll('.bv-input[data-income]').forEach(inp => {
+      income += parseFloat(inp.value) || 0;
+    });
+    document.getElementById('bv-total').textContent = fmtMoneyTotal(total);
+    document.getElementById('bv-total-monthly').textContent = fmtMoneyTotal(total / 12);
+  }
+
+  function flashSaved(savedSpan) {
+    savedSpan.textContent = '✓';
+    savedSpan.style.color = 'var(--green, #2e8540)';
+    setTimeout(() => { savedSpan.textContent = ''; }, 1500);
+  }
+
+  function flashError(savedSpan) {
+    savedSpan.textContent = '!';
+    savedSpan.style.color = 'var(--red, #c0392b)';
+  }
+
+  document.querySelectorAll('.bv-input').forEach(inp => {
+    inp.addEventListener('change', async function () {
+      const l1 = this.dataset.l1;
+      const prev = parseFloat(this.dataset.prev) || 0;
+      const next = parseFloat(this.value) || 0;
+      // No-op if unchanged
+      if (Math.abs(next - prev) < 0.005) return;
+
+      const row = this.closest('tr');
+      const savedSpan = row.querySelector('.bv-saved');
+      const monthlyCell = row.querySelector('.bv-monthly');
+
+      try {
+        const resp = await fetch('/api/budget-values/upsert', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            year: YEAR,
+            l1: l1,
+            l2: this.dataset.l2 || '',
+            amount: next,
+          }),
+        });
+        const data = await resp.json();
+        if (!data.ok) throw new Error(data.error || 'save failed');
+
+        // Update prev so subsequent edits compare against latest persisted.
+        this.dataset.prev = data.amount.toFixed(2);
+        // L1-level saves also refresh the flat value the rollup restores to.
+        if (!this.dataset.l2 && !this.dataset.income) {
+          this.dataset.flat = data.amount.toFixed(2);
+        }
+        if (monthlyCell) monthlyCell.textContent = fmtMoney(data.amount / 12);
+        // L2 change → recompute the parent L1's rolled-up state.
+        if (this.dataset.l2) refreshL1(this.dataset.key);
+        recomputeTotal();
+        flashSaved(savedSpan);
+        // Standard green Saved toast — shared.js global.
+        if (window._txSavedToast) _txSavedToast();
+      } catch (e) {
+        console.error('budget save failed', e);
+        flashError(savedSpan);
+      }
+    });
+
+    // Enter key blurs the field, triggering change + save.
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+    });
+  });
+})();
+</script>
+
+{% endblock %}

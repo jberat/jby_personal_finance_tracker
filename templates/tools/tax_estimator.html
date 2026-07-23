@@ -1,0 +1,659 @@
+{% extends "base.html" %}
+{% block title %}Tax Estimator — Personal Financial Tracker{% endblock %}
+{% block page_title %}Tax Estimator{% endblock %}
+{% block back_link %}
+<a href="/tools" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="All Tools">←</a>
+{% endblock %}
+
+{% block head %}
+<style>
+  /* Wizard-only styles — built entirely on the app's CSS variables.
+     Full content width, same as the table pages (no artificial cap —
+     .main in style.css already bounds the whole content column). */
+  .twz-wrap { width: 100%; }
+  .twz-progress { display:flex; gap:6px; margin-bottom:20px; align-items:center; }
+  .twz-progress .seg {
+    flex:1; height:5px; border-radius:3px; background: var(--border);
+  }
+  .twz-progress .seg.done    { background: var(--navy); }
+  .twz-progress .seg.current { background: var(--navy); opacity: 0.55; }
+  .twz-stepline { font-size:12px; color:var(--text-3); margin-bottom:8px;
+                  text-transform:uppercase; letter-spacing:0.05em; }
+  .twz-step { display:none; }
+  .twz-step.active { display:block; }
+  .twz-nav { display:flex; justify-content:space-between; margin-top:18px; }
+  .twz-choice-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  .twz-choice {
+    border:1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface); padding:12px 16px; cursor:pointer;
+    font-size:14px; color: var(--text); font-family: var(--font);
+    text-align:left;
+  }
+  .twz-choice:hover { border-color: var(--border-mid); background: var(--bg); }
+  .twz-choice.selected {
+    border-color: var(--navy); background: var(--navy-light);
+    box-shadow: 0 0 0 1px var(--navy);
+  }
+  .twz-choice .sub { display:block; font-size:12px; color:var(--text-2); margin-top:2px; }
+  .twz-toggle-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+                     gap:10px; margin-top:10px; }
+  .twz-callout {
+    border-left:3px solid var(--amber); background: var(--amber-bg);
+    color: var(--amber); border-radius: var(--radius); padding:12px 14px;
+    font-size:13px; line-height:1.5; margin:14px 0;
+  }
+  .twz-field { margin-bottom:14px; }
+  .twz-field label { display:block; font-size:13px; font-weight:600; margin-bottom:4px; }
+  .twz-field .help { font-size:12px; color:var(--text-3); margin-top:3px; line-height:1.4; }
+  .twz-group h3 { font-size:13px; text-transform:uppercase; letter-spacing:0.05em;
+                  color:var(--text-2); margin:20px 0 10px; }
+  .twz-walk td { padding:6px 10px; font-size:13px; border:none; }
+  .twz-walk td.num { text-align:right; font-family: var(--font-mono); font-size:12px; }
+  .twz-walk tr.rule td { border-top:1px solid var(--border-mid); font-weight:600; }
+  .twz-notes li { font-size:12px; color:var(--text-2); margin-bottom:6px; line-height:1.5; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="twz-wrap">
+
+  <div class="twz-progress" id="twz-progress"></div>
+  <div class="twz-stepline" id="twz-stepline"></div>
+
+  <!-- ── Step 1: Read me first ─────────────────────────────────────── -->
+  <div class="twz-step" id="twz-step-1">
+    <div class="card"><div class="card-header"><h2>Read me first</h2></div>
+    <div class="card-body">
+      <p style="font-size:14px;line-height:1.6">This walkthrough builds a rough
+      estimate of your <strong>{{ tax_year }}</strong> federal and state income
+      taxes from a handful of numbers. It never touches your data — nothing you
+      type here is saved.</p>
+      <div class="twz-callout">
+        <strong>Hard caveats — please actually read these:</strong>
+        <ul style="margin:8px 0 0 18px;line-height:1.6">
+          <li>This is <strong>not tax advice</strong>; no CPA or financial advisor was involved. Estimates only.</li>
+          <li>Rates are for tax year {{ tax_year }} and may change — verify before relying on results.</li>
+          <li>State math is <strong>approximate</strong> (flat rate × a federal base). The results page shows exactly which approximation was used for your state.</li>
+          <li>Not modeled: AMT, capital-loss netting, self-employment losses, QBI, most credits and phase-outs, local/county taxes.</li>
+        </ul>
+      </div>
+    </div></div>
+    <div class="twz-nav"><span></span>
+      <button class="btn btn-primary" onclick="twzGo(2)">I understand — start</button>
+    </div>
+  </div>
+
+  <!-- ── Step 2: About you ─────────────────────────────────────────── -->
+  <div class="twz-step" id="twz-step-2">
+    <div class="card"><div class="card-header"><h2>About you</h2></div>
+    <div class="card-body">
+      <div class="twz-field"><label>Filing status</label>
+        <div class="twz-choice-row" id="twz-filing">
+          <button class="twz-choice" data-v="single">Single</button>
+          <button class="twz-choice" data-v="mfj">Married filing jointly<span class="sub">incl. qualifying surviving spouse</span></button>
+          <button class="twz-choice" data-v="mfs">Married filing separately</button>
+          <button class="twz-choice" data-v="hoh">Head of household</button>
+        </div>
+      </div>
+      <div class="twz-field" style="max-width:340px"><label for="twz-state">State</label>
+        <select id="twz-state" class="form-control">
+          <option value="">— choose your state —</option>
+          {% for group_label, states in state_groups %}
+          <optgroup label="{{ group_label }}">
+            {% for code, name, supported in states %}
+            <option value="{{ code }}">{{ name }}{% if not supported %} ⚠ federal only{% endif %}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+        <div class="help">"Not yet supported" states are fine to pick — your
+        federal estimate still computes; only the state line is skipped.</div>
+      </div>
+      <div class="twz-callout" id="twz-state-note" style="display:none;max-width:520px"></div>
+    </div></div>
+    <div class="twz-nav">
+      <button class="btn btn-ghost" onclick="twzGo(1)">← Back</button>
+      <button class="btn btn-primary" id="twz-next-2" onclick="twzNext2()">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 3: Income types ──────────────────────────────────────── -->
+  <div class="twz-step" id="twz-step-3">
+    <div class="card"><div class="card-header"><h2>Your income types</h2></div>
+    <div class="card-body">
+      <p class="text-sm text-2">Toggle everything that applies — you'll only be
+      asked for numbers on the things you pick.</p>
+      <div class="twz-toggle-grid" id="twz-income-toggles">
+        <button class="twz-choice" data-v="w2">W-2 job<span class="sub">salary/wages from an employer</span></button>
+        <button class="twz-choice" data-v="se">Self-employment / 1099<span class="sub">freelance, contracting, side business</span></button>
+        <button class="twz-choice" data-v="invest">Interest &amp; dividends<span class="sub">bank interest, brokerage dividends</span></button>
+        <button class="twz-choice" data-v="gains">Capital gains<span class="sub">sold stock/crypto/property</span></button>
+        <button class="twz-choice" data-v="other">Other income<span class="sub">anything else taxable</span></button>
+      </div>
+
+      {# ── SE entity question — shown only when Self-employment is on ── #}
+      <div id="twz-se-structure" style="display:none;margin-top:18px">
+        <div class="twz-field"><label>How is your self-employment structured?</label>
+          <div class="twz-choice-row" id="twz-sestruct">
+            <button class="twz-choice selected" data-v="sole_prop">Sole proprietor / single-member LLC<span class="sub">the default — SE tax applies</span></button>
+            <button class="twz-choice" data-v="s_corp">S-corp owner paying myself W-2<span class="sub">salary via W-2; distributions not SE-taxed</span></button>
+          </div>
+        </div>
+        <div class="twz-callout" id="twz-sestruct-note-sole" style="margin:10px 0 0">
+          <strong>Sole proprietor / single-member LLC:</strong> you'll enter your
+          <strong>net</strong> self-employment profit (Schedule&nbsp;C line&nbsp;31). The tool
+          automatically applies SE tax on 92.35% of that profit <em>and</em> the
+          half-SE-tax deduction — don't subtract either yourself. The half-SE-tax
+          deduction is a 1040 deduction, <em>not</em> a business expense, so your
+          Schedule&nbsp;C profit does not already include it.
+        </div>
+        <div class="twz-callout" id="twz-sestruct-note-scorp" style="display:none;margin:10px 0 0">
+          <strong>S-corp owner:</strong> your <strong>salary</strong> belongs in the
+          W-2 fields (toggle "W-2 job" above and enter it there — FICA is already
+          withheld on it). Your <strong>owner distributions</strong> are
+          <em>not</em> subject to SE tax — you'll get a separate "owner
+          distributions" field, taxed as ordinary income with no SE tax.
+        </div>
+      </div>
+    </div></div>
+    <div class="twz-nav">
+      <button class="btn btn-ghost" onclick="twzGo(2)">← Back</button>
+      <button class="btn btn-primary" onclick="twzNext3()">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 4: Deductions ────────────────────────────────────────── -->
+  <div class="twz-step" id="twz-step-4">
+    <div class="card"><div class="card-header"><h2>Your deductions</h2></div>
+    <div class="card-body">
+      <div class="twz-field"><label>Deduction method</label>
+        <div class="twz-choice-row" id="twz-deduction">
+          <button class="twz-choice selected" data-v="standard">Standard deduction<span class="sub" id="twz-std-amt">the default — most people</span></button>
+          <button class="twz-choice" data-v="itemized">Itemize<span class="sub">mortgage interest, SALT, charity…</span></button>
+        </div>
+      </div>
+      <div class="twz-field"><label>Contributions made outside payroll</label>
+        <div class="twz-choice-row" id="twz-ded-toggles">
+          <button class="twz-choice" data-v="ira">Traditional IRA<span class="sub">deductible contributions</span></button>
+          <button class="twz-choice" data-v="hsa">HSA<span class="sub">direct contributions only</span></button>
+        </div>
+      </div>
+      <div class="twz-callout">
+        <strong>Don't double-count payroll pre-tax items.</strong> 401(k)
+        deferrals and health insurance premiums taken out of your paycheck are
+        usually <strong>already excluded</strong> from your W-2 Box 1 wages (they show up in Box 12 — code D for 401(k) — not in Box 1). Quick self-check on last year's W-2: if Box 3 is bigger than Box 1, the difference is your pre-tax deferrals, already excluded.
+        Entering them again here would deduct them twice. Only toggle IRA/HSA
+        for money you contributed <em>outside</em> payroll.
+      </div>
+    </div></div>
+    <div class="twz-nav">
+      <button class="btn btn-ghost" onclick="twzGo(3)">← Back</button>
+      <button class="btn btn-primary" onclick="twzGo(5)">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 5: Numbers ───────────────────────────────────────────── -->
+  <div class="twz-step" id="twz-step-5">
+    <div class="card"><div class="card-header"><h2>Enter your numbers</h2></div>
+    <div class="card-body" id="twz-numbers"><!-- built by JS --></div></div>
+    <div class="twz-nav">
+      <button class="btn btn-ghost" onclick="twzGo(4)">← Back</button>
+      <button class="btn btn-primary" onclick="twzCalc()">See my estimate →</button>
+    </div>
+  </div>
+
+  <!-- ── Step 6: Estimate ──────────────────────────────────────────── -->
+  <div class="twz-step" id="twz-step-6">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn btn-ghost btn-sm" id="twz-brackets-btn"
+              style="border:1.5px solid var(--navy);color:var(--navy)"
+              onclick="twzShowBrackets()" title="Where your ordinary income sits in the {{ tax_year }} federal brackets">
+        Federal brackets
+      </button>
+    </div>
+    <div id="twz-results"><!-- built by JS --></div>
+
+    {# ── Federal-brackets modal (same backdrop + .modal-panel pattern as
+          trx_detail's modals). Content filled by twzShowBrackets() from the
+          calc payload's bracket_breakdown — nothing computed client-side. #}
+    <div id="twz-brackets-backdrop"
+         style="display:none;position:fixed;inset:0;z-index:399;background:rgba(0,0,0,0.35)"
+         onclick="twzHideBrackets()"></div>
+    <div id="twz-brackets-modal" class="modal-panel modal-panel-wide" style="display:none">
+      <div class="modal-title">Federal brackets — your ordinary income in each</div>
+      <div class="text-sm text-2" id="twz-brackets-sub" style="margin:4px 0 12px"></div>
+      <div id="twz-brackets-body"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px">
+        <button class="btn btn-ghost btn-sm" onclick="twzHideBrackets()">Close</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2>Payments &amp; what's left</h2></div>
+      <div class="card-body">
+        <p class="text-sm text-2">Enter what you've already paid in — paycheck
+        withholding (annualized for a full-year view) and any estimated
+        payments — then recalculate.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+          <div class="twz-field"><label>Federal withholding</label>
+            <input type="number" step="any" class="form-control" id="twz-pay-fedwh">
+            <div class="help">W-2 Box 2 (plus any other federal withholding)</div></div>
+          <div class="twz-field"><label>State withholding</label>
+            <input type="number" step="any" class="form-control" id="twz-pay-statewh">
+            <div class="help">W-2 Box 17</div></div>
+          <div class="twz-field"><label>Estimated payments — federal</label>
+            <input type="number" step="any" class="form-control" id="twz-pay-estfed">
+            <div class="help">1040-ES payments made</div></div>
+          <div class="twz-field"><label>Estimated payments — state</label>
+            <input type="number" step="any" class="form-control" id="twz-pay-eststate">
+            <div class="help">state estimated payments made</div></div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="twzCalc()">Recalculate</button>
+        <div id="twz-remaining" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="twz-nav">
+      <button class="btn btn-ghost" onclick="twzGo(5)">← Back to numbers</button>
+      <button class="btn btn-ghost" onclick="twzReset()">Start over</button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── All wizard state lives in these JS variables (nothing persisted) ──────
+const STD_DEDUCTION = {single: 16100, mfj: 32200, mfs: 16100, hoh: 24150};
+// Serialized from the engine's STATE_RULES (single source of truth):
+// code → 'none' | 'flat'; a code NOT present here is unsupported.
+const STATE_INFO = {{ state_info | tojson }};
+const UNSUPPORTED_STATE_MESSAGE = {{ unsupported_state_message | tojson }};
+let twzStep = 1;
+const twz = {
+  filing_status: null, state: null,
+  incomes: {w2: false, se: false, invest: false, gains: false, other: false},
+  se_structure: "sole_prop",   // 'sole_prop' | 's_corp'
+  use_standard: true, ira: false, hsa: false,
+  numbers: {},   // field id → value, survives back/forward
+};
+const STEP_NAMES = ["Read me first", "About you", "Income types",
+                    "Deductions", "Your numbers", "Your estimate"];
+
+function fmt$(v) {
+  const n = Number(v) || 0;
+  const s = Math.abs(n).toLocaleString("en-US",
+      {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return (n < 0 ? "-$" : "$") + s;
+}
+// Whole-dollar variant for the brackets table (ranges read better without cents).
+function fmt$0(v) {
+  const n = Number(v) || 0;
+  return (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-US");
+}
+let twzLast = null;   // last successful calc payload (feeds the brackets modal)
+
+// ── Navigation + progress ────────────────────────────────────────────────
+function twzGo(n) {
+  if (n === 5) twzBuildNumbers();
+  twzStep = n;
+  document.querySelectorAll(".twz-step").forEach(el => el.classList.remove("active"));
+  document.getElementById("twz-step-" + n).classList.add("active");
+  const prog = document.getElementById("twz-progress");
+  prog.innerHTML = "";
+  for (let i = 1; i <= 6; i++) {
+    const seg = document.createElement("div");
+    seg.className = "seg" + (i < n ? " done" : i === n ? " current" : "");
+    prog.appendChild(seg);
+  }
+  document.getElementById("twz-stepline").textContent =
+      "Step " + n + " of 6 — " + STEP_NAMES[n - 1];
+  window.scrollTo(0, 0);
+}
+
+function twzNext2() {
+  if (!twz.filing_status) { alert("Pick a filing status first."); return; }
+  if (!twz.state) { alert("Pick your state (any state is fine)."); return; }
+  twzGo(3);
+}
+function twzNext3() {
+  if (!Object.values(twz.incomes).some(Boolean)) {
+    alert("Toggle at least one income type."); return;
+  }
+  twzGo(4);
+}
+function twzReset() { location.reload(); }
+
+// ── Choice / toggle wiring ───────────────────────────────────────────────
+document.querySelectorAll("#twz-filing .twz-choice").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("#twz-filing .twz-choice").forEach(x => x.classList.remove("selected"));
+    b.classList.add("selected");
+    twz.filing_status = b.dataset.v;
+    document.getElementById("twz-std-amt").textContent =
+        "$" + STD_DEDUCTION[twz.filing_status].toLocaleString() + " — most people";
+  };
+});
+document.getElementById("twz-state").onchange = e => {
+  twz.state = e.target.value || null;
+  // Immediate inline note when a not-yet-supported state is picked —
+  // don't make the user wait until the results page to learn this.
+  const note = document.getElementById("twz-state-note");
+  if (twz.state && !(twz.state in STATE_INFO)) {
+    note.textContent = "⚠ " + UNSUPPORTED_STATE_MESSAGE;
+    note.style.display = "block";
+  } else {
+    note.style.display = "none";
+    note.textContent = "";
+  }
+};
+document.querySelectorAll("#twz-income-toggles .twz-choice").forEach(b => {
+  b.onclick = () => {
+    const on = b.classList.toggle("selected");
+    twz.incomes[b.dataset.v] = on;
+    if (b.dataset.v === "se") {
+      document.getElementById("twz-se-structure").style.display =
+          on ? "block" : "none";
+    }
+  };
+});
+// SE entity structure choice (sole prop vs S-corp owner)
+document.querySelectorAll("#twz-sestruct .twz-choice").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("#twz-sestruct .twz-choice").forEach(x => x.classList.remove("selected"));
+    b.classList.add("selected");
+    twz.se_structure = b.dataset.v;
+    const scorp = twz.se_structure === "s_corp";
+    document.getElementById("twz-sestruct-note-sole").style.display = scorp ? "none" : "block";
+    document.getElementById("twz-sestruct-note-scorp").style.display = scorp ? "block" : "none";
+  };
+});
+document.querySelectorAll("#twz-deduction .twz-choice").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("#twz-deduction .twz-choice").forEach(x => x.classList.remove("selected"));
+    b.classList.add("selected");
+    twz.use_standard = (b.dataset.v === "standard");
+  };
+});
+document.querySelectorAll("#twz-ded-toggles .twz-choice").forEach(b => {
+  b.onclick = () => {
+    const on = b.classList.toggle("selected");
+    twz[b.dataset.v] = on;
+  };
+});
+
+// ── Step 5: build only the fields they toggled ───────────────────────────
+const FIELD_DEFS = {
+  w2: {title: "W-2 job", fields: [
+    ["w2_wages", "W-2 wages", "Box 1 of your W-2 (pre-tax 401k and payroll health premiums are already out of this number)"],
+    ["w2_federal_withholding", "Federal tax withheld", "Box 2 — used later for the payments section"],
+    ["w2_state_withholding", "State tax withheld", "Box 17"]]},
+  // se: built dynamically in twzBuildNumbers — depends on twz.se_structure.
+  invest: {title: "Interest & dividends", fields: [
+    ["interest", "Taxable interest", "1099-INT Box 1"],
+    ["ordinary_dividends", "Ordinary dividends (total)", "1099-DIV Box 1a — the TOTAL, which includes qualified"],
+    ["qualified_dividends", "Qualified dividends", "1099-DIV Box 1b — the subset of 1a taxed at capital-gains rates"]]},
+  gains: {title: "Capital gains", fields: [
+    ["short_term_gains", "Net short-term gains", "held ≤ 1 year; taxed as ordinary income. Losses aren't modeled — enter 0 if net negative"],
+    ["long_term_gains", "Net long-term gains", "held > 1 year; taxed at 0/15/20%. Losses aren't modeled — enter 0 if net negative"]]},
+  other: {title: "Other income", fields: [
+    ["other_income", "Other taxable income", "anything else taxed as ordinary income"]]},
+};
+
+function twzBuildNumbers() {
+  const host = document.getElementById("twz-numbers");
+  let html = "";
+  const group = (title, inner) =>
+      `<div class="twz-group"><h3>${title}</h3>${inner}</div>`;
+  const field = (id, label, help) => `
+    <div class="twz-field" style="max-width:340px">
+      <label for="twz-f-${id}">${label}</label>
+      <input type="number" step="any" class="form-control" id="twz-f-${id}"
+             value="${twz.numbers[id] ?? ""}"
+             onchange="twz.numbers['${id}']=this.value">
+      <div class="help">${help}</div>
+    </div>`;
+  for (const key of ["w2", "se", "invest", "gains", "other"]) {
+    if (!twz.incomes[key]) continue;
+    if (key === "se") {
+      // Self-employment fields depend on the entity structure picked on
+      // the income-types step.
+      if (twz.se_structure === "s_corp") {
+        html += group("Self-employment — S-corp owner",
+          `<div class="twz-callout" style="margin-top:0">
+             <strong>S-corp owner:</strong> your <strong>salary</strong> goes in
+             the W-2 fields${twz.incomes.w2 ? " above" : " (go back and toggle “W-2 job” if you pay yourself a salary)"} —
+             FICA is already withheld on it. Distributions below are
+             <em>not</em> subject to SE tax.
+           </div>`
+          + field("scorp_distributions", "Owner distributions",
+                  "total distributions you took from the S-corp this year — taxed as ordinary income, NO self-employment tax"));
+      } else {
+        html += group("Self-employment / 1099",
+          field("se_income", "Net self-employment profit (Schedule C line 31)",
+                "your NET profit AFTER business expenses — Schedule C line 31. Losses aren't modeled — a negative number is excluded entirely")
+          + `<div class="twz-callout" style="margin-top:0">
+               <strong>SE tax is handled for you.</strong> The tool applies
+               self-employment tax (on 92.35% of this profit) and the
+               half-SE-tax deduction automatically — don't deduct either
+               yourself. The half-SE-tax deduction is a 1040 deduction, not a
+               business expense, so your Schedule C profit doesn't already
+               include it.
+             </div>`);
+      }
+      continue;
+    }
+    const def = FIELD_DEFS[key];
+    html += group(def.title, def.fields.map(f => field(...f)).join(""));
+  }
+  let ded = "";
+  if (!twz.use_standard)
+    ded += field("itemized_total", "Total itemized deductions",
+                 "Schedule A total (mortgage interest + SALT up to the cap + charity + …)");
+  else
+    ded += `<p class="text-sm text-2">Standard deduction: <strong>$${STD_DEDUCTION[twz.filing_status].toLocaleString()}</strong> — nothing to enter.</p>`;
+  if (twz.ira) ded += field("traditional_ira", "Traditional IRA contributions",
+      "deductible contributions made outside payroll");
+  if (twz.hsa) ded += field("hsa", "HSA contributions (direct)",
+      "ONLY contributions made outside payroll — payroll HSA is already out of Box 1");
+  html += group("Deductions", ded);
+  html += group("Credits (optional)", field("credits_total", "Total tax credits",
+      "simple credits vs federal income tax (e.g. child tax credit). Leave 0 if unsure"));
+  host.innerHTML = html;
+}
+
+// ── Calculate → render results ───────────────────────────────────────────
+function twzNum(id) { const v = twz.numbers[id]; return v === undefined || v === "" ? 0 : Number(v); }
+
+async function twzCalc() {
+  const payload = {
+    filing_status: twz.filing_status, state: twz.state,
+    use_standard: twz.use_standard,
+    pretax_401k_already_excluded: true,
+    w2_wages: twzNum("w2_wages"),
+    w2_federal_withholding: twzNum("w2_federal_withholding"),
+    w2_state_withholding: twzNum("w2_state_withholding"),
+    se_structure: twz.incomes.se ? twz.se_structure : "sole_prop",
+    se_income: (twz.incomes.se && twz.se_structure !== "s_corp")
+        ? twzNum("se_income") : 0,
+    scorp_distributions: (twz.incomes.se && twz.se_structure === "s_corp")
+        ? twzNum("scorp_distributions") : 0,
+    interest: twzNum("interest"),
+    ordinary_dividends: twzNum("ordinary_dividends"),
+    qualified_dividends: twzNum("qualified_dividends"),
+    short_term_gains: twzNum("short_term_gains"),
+    long_term_gains: twzNum("long_term_gains"),
+    other_income: twzNum("other_income"),
+    itemized_total: twzNum("itemized_total"),
+    traditional_ira: twzNum("traditional_ira"),
+    hsa: twzNum("hsa"),
+    credits_total: twzNum("credits_total"),
+    federal_withheld: Number(document.getElementById("twz-pay-fedwh").value || 0),
+    state_withheld: Number(document.getElementById("twz-pay-statewh").value || 0),
+    estimated_payments_fed: Number(document.getElementById("twz-pay-estfed").value || 0),
+    estimated_payments_state: Number(document.getElementById("twz-pay-eststate").value || 0),
+  };
+  // Prefill payments from W-2 withholding on first visit to step 6.
+  if (twzStep !== 6) {
+    const fw = document.getElementById("twz-pay-fedwh");
+    const sw = document.getElementById("twz-pay-statewh");
+    if (!fw.value && payload.w2_federal_withholding) fw.value = payload.w2_federal_withholding;
+    if (!sw.value && payload.w2_state_withholding) sw.value = payload.w2_state_withholding;
+    payload.federal_withheld = Number(fw.value || 0);
+    payload.state_withheld = Number(sw.value || 0);
+  }
+  let r;
+  try {
+    const resp = await fetch("/api/tax-estimator/calc", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)});
+    r = await resp.json();
+  } catch (e) {
+    alert("Calculation failed: " + e); return;
+  }
+  if (!r.ok) { alert(r.error || "Calculation failed."); return; }
+  twzRender(r);
+  if (twzStep !== 6) twzGo(6);
+}
+
+// ── Federal-brackets modal ───────────────────────────────────────────────
+// Renders the server-computed bracket_breakdown (tax_engine_simple
+// .bracket_breakdown) — range, rate, $ filling each bracket, tax from it,
+// running total, marginal bracket highlighted. Preferential income (LTCG +
+// qualified dividends) is NOT in the table; it stacks on top at 0/15/20%.
+function twzShowBrackets() {
+  const bb = twzLast && twzLast.bracket_breakdown;
+  if (!bb) { alert("Run the estimate first."); return; }
+  const range = b => b.upper === null
+      ? "over " + fmt$0(b.lower)
+      : fmt$0(b.lower) + " – " + fmt$0(b.upper);
+  const rows = bb.rows.map(b => `
+    <tr${b.is_current ? ' style="background:var(--navy-light);font-weight:600"'
+        : (b.income_in === 0 ? ' style="color:var(--text-3)"' : '')}>
+      <td>${range(b)}</td>
+      <td class="right">${(b.rate * 100).toFixed(0)}%</td>
+      <td class="right">${fmt$0(b.income_in)}</td>
+      <td class="right">${fmt$0(b.tax_in)}</td>
+      <td class="right">${fmt$0(b.cumulative_tax)}</td>
+    </tr>`).join("");
+  document.getElementById("twz-brackets-sub").innerHTML =
+      `{{ tax_year }} brackets · ${esc(twzLast.filing_status.toUpperCase())} filer — ` +
+      `ordinary taxable income <strong>${fmt$0(bb.ordinary_taxable)}</strong>.`;
+  document.getElementById("twz-brackets-body").innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Bracket</th><th class="right">Rate</th>
+          <th class="right">$ in bracket</th><th class="right">Tax from bracket</th>
+          <th class="right">Running total</th></tr></thead>
+        <tbody>${rows}
+          <tr style="border-top:2px solid var(--border-mid);font-weight:700">
+            <td>Total (federal tax on ordinary income)</td><td></td>
+            <td class="right">${fmt$0(bb.ordinary_taxable)}</td>
+            <td class="right">${fmt$0(bb.total_tax)}</td>
+            <td class="right">${fmt$0(bb.total_tax)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    ${bb.headroom !== null ? `
+    <div class="text-sm text-2" style="margin-top:10px">
+      <strong>Headroom:</strong> ${fmt$0(bb.headroom)} more ordinary taxable
+      income before the ${(bb.next_rate * 100).toFixed(0)}% bracket starts.
+    </div>` : ""}
+    <div class="twz-callout" style="margin:12px 0 0">
+      <strong>Preferential income sits outside this table.</strong>
+      Long-term capital gains and qualified dividends
+      (${fmt$0(twzLast.income.preferential)} here) are not taxed through
+      these brackets — they stack on top of ordinary income at their own
+      0/15/20% rates (${fmt$0(twzLast.federal.capgains_tax)} of tax,
+      shown on the results page).
+    </div>`;
+  document.getElementById("twz-brackets-backdrop").style.display = "block";
+  document.getElementById("twz-brackets-modal").style.display = "block";
+}
+function twzHideBrackets() {
+  document.getElementById("twz-brackets-backdrop").style.display = "none";
+  document.getElementById("twz-brackets-modal").style.display = "none";
+}
+
+function twzRender(r) {
+  twzLast = r;
+  const sr = r.state_result, fed = r.federal, pay = r.payments;
+  const stateVal = sr.supported ? fmt$(sr.tax) : "n/a";
+  const stateSub = sr.supported
+      ? (sr.type === "none" ? "no state income tax"
+         : (sr.rate * 100).toFixed(2) + "% flat × " +
+           (sr.base === "federal_taxable" ? "federal taxable income" : "federal AGI"))
+      : "state not yet supported";
+  const seSub = "SE tax = both halves of Social Security + Medicare (FICA) " +
+                "on self-employment earnings" +
+                (fed.additional_medicare > 0
+                 ? "; incl. " + fmt$(fed.additional_medicare) + " additional Medicare in federal total" : "") +
+                (fed.niit > 0 ? "; NIIT " + fmt$(fed.niit) + " in federal total" : "");
+  let html = `
+    <div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px">
+      <div class="stat-card"><div class="label">Federal tax</div>
+        <div class="value">${fmt$(fed.total)}</div>
+        <div class="sub">income tax ${fmt$(fed.income_tax)} + SE/other</div></div>
+      <div class="stat-card"><div class="label">State tax</div>
+        <div class="value">${stateVal}</div><div class="sub">${stateSub}</div></div>
+      <div class="stat-card"><div class="label">Self-employment tax</div>
+        <div class="value">${fmt$(fed.se_tax)}</div><div class="sub">${seSub}</div></div>
+      <div class="stat-card"><div class="label">Total tax</div>
+        <div class="value">${fmt$(r.totals.total_tax)}</div>
+        <div class="sub">federal + state estimate</div></div>
+      <div class="stat-card"><div class="label">Effective rate</div>
+        <div class="value">${(r.rates.effective_gross * 100).toFixed(1)}%</div>
+        <div class="sub">${esc(r.rates.effective_gross_basis)}</div>
+        <div class="value" style="margin-top:6px">${(r.rates.effective_agi * 100).toFixed(1)}%</div>
+        <div class="sub">${esc(r.rates.effective_agi_basis)}</div></div>
+      <div class="stat-card"><div class="label">Marginal bracket</div>
+        <div class="value">${(r.rates.federal_marginal * 100).toFixed(0)}%</div>
+        <div class="sub">federal, next $1 of ordinary income</div></div>
+    </div>`;
+  if (!sr.supported) {
+    html += `<div class="twz-callout" style="margin-top:14px">${sr.message}</div>`;
+  }
+  html += `
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2>From income to taxable income</h2></div>
+      <div class="card-body" style="padding:8px 20px">
+        <table class="twz-walk" style="width:100%;border-collapse:collapse">
+          ${r.agi_walk.map(s => `
+            <tr class="${s.rule ? "rule" : ""}">
+              <td>${s.label}</td><td class="num">${fmt$(s.amount)}</td>
+            </tr>`).join("")}
+        </table>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2>Notes &amp; approximations</h2></div>
+      <div class="card-body"><ul class="twz-notes" style="margin-left:18px">
+        ${r.notes.map(n => `<li>${n}</li>`).join("")}
+      </ul></div>
+    </div>`;
+  document.getElementById("twz-results").innerHTML = html;
+
+  // Payments / remaining
+  let rem = "";
+  const owed = pay.remaining_total;
+  if (owed > 0.005) {
+    rem = `<div class="alert error" style="margin:0">
+      <strong>Estimated remaining owed: ${fmt$(owed)}</strong>
+      (federal ${fmt$(pay.remaining_federal)}${pay.remaining_state !== null
+        ? ", state " + fmt$(pay.remaining_state) : ", state n/a"})<br>
+      Suggested quarterly estimated payment: <strong>${fmt$(pay.quarterly_suggestion)}</strong> × 4
+      (Apr 15 / Jun 15 / Sep 15 / Jan 15).</div>`;
+  } else {
+    rem = `<div class="alert success" style="margin:0">
+      <strong>Projected refund: ${fmt$(pay.refund)}</strong>
+      — you've paid in ${fmt$(pay.federal_paid + pay.state_paid)} against
+      ${fmt$(r.totals.total_tax)} estimated tax.</div>`;
+  }
+  document.getElementById("twz-remaining").innerHTML = rem;
+}
+
+twzGo(1);
+</script>
+{% endblock %}

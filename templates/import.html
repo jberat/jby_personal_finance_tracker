@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Import CSV — Personal Financial Tracker{% endblock %}
+{% block page_title %}Import CSV{% endblock %}
+
+{% block content %}
+
+<div style="display:grid;grid-template-columns:420px 1fr;gap:24px;align-items:start">
+
+  <!-- Upload form (the whole card is a dropzone — drag a CSV anywhere onto it) -->
+  <div class="card" id="import-dropzone">
+    <div class="card-header"><h2>Upload a Statement</h2></div>
+    <div class="card-body">
+      <form method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+          <label class="form-label">Account</label>
+          <select class="form-control" name="account_id" required autocomplete="off">
+            <option value="" selected>— Select account —</option>
+            {% for a in accounts %}
+              <option value="{{ a.id }}">{{ a.name }}{% if a.account_num %} ({{ a.account_num }}){% endif %}{% if a.type == 'checking' %} — checking{% elif a.type == 'credit_card' %} — credit card{% elif a.type == 'digital_wallet' %} — wallet{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">CSV File</label>
+          <div id="dz-area"
+               style="border:1.5px dashed var(--border-mid);border-radius:var(--radius);
+                      padding:14px;text-align:center;background:var(--bg);
+                      transition:background .15s,border-color .15s">
+            <input class="form-control" type="file" name="csv_file" id="csv-file-input"
+                   accept=".csv" required>
+            <div class="text-xs text-3 mt-1" id="dz-hint">
+              …or drag &amp; drop a CSV anywhere on this card.
+            </div>
+            <div class="text-xs mt-1" id="dz-filename"
+                 style="display:none;color:var(--navy);font-weight:600"></div>
+          </div>
+          <div class="text-xs text-3 mt-1">
+            Chase CC or Chase Checking format accepted.
+          </div>
+        </div>
+        <button class="btn btn-primary w-full" type="submit"
+                style="justify-content:center">
+          Upload &amp; Import
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Recent batches -->
+  <div class="card">
+    <div class="card-header"><h2>Recent Imports</h2></div>
+    {% if batches %}
+      <div class="table-wrap" style="border:none;border-radius:0;box-shadow:none">
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Account</th>
+              <th>Date Range</th>
+              <th class="right">Transactions</th>
+              <th class="right">Total</th>
+              <th class="right">Dupes</th>
+              <th class="right dim">Imported</th>
+              <th class="right"></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for b in batches %}
+          <tr data-batch-id="{{ b.id }}">
+            <td class="mono" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                title="{{ b.filename }}">{{ b.filename }}</td>
+            <td>{{ b.account_name }}</td>
+            <td class="dim" style="white-space:nowrap;font-size:12px">
+              {% if b.date_start %}
+                {{ b.date_start }} → {{ b.date_end }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="right">{{ b.staged_count }}</td>
+            <td class="right">${{ "{:,.0f}".format(b.staged_total) }}</td>
+            <td class="right dim">{{ b.dupes_count or 0 }}</td>
+            <td class="right dim" style="font-size:12px">{{ b.imported_at[:16] }}</td>
+            <td class="right">
+              {% if b.filename and b.filename.startswith('REROUTE:') %}
+                <span class="dim text-xs" title="Synthetic batch — undo via review queue">—</span>
+              {% else %}
+                <button class="btn btn-ghost btn-sm undo-batch-btn"
+                        data-batch-id="{{ b.id }}"
+                        data-filename="{{ b.filename }}"
+                        data-count="{{ b.staged_count }}"
+                        title="Delete this import (staging + any approved transactions)">
+                  Undo
+                </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">No imports yet.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+// ── Drag & drop CSV onto the upload card ─────────────────────────────────
+// Shared helper (initDropzone in static/js/shared.js — this page's original
+// inline dropzone, extracted so every upload card behaves identically).
+// Dropping only ASSIGNS the file to the input and shows the name — the
+// account still has to be picked and Upload & Import clicked (no auto-submit).
+initDropzone(document.getElementById('import-dropzone'),
+             document.getElementById('csv-file-input'),
+             {areaEl: document.getElementById('dz-area'),
+              labelEl: document.getElementById('dz-filename')});
+
+document.querySelectorAll('.undo-batch-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id    = btn.dataset.batchId;
+    const file  = btn.dataset.filename;
+    const count = btn.dataset.count;
+    if (!confirm(
+      `Undo import "${file}"?\n\n` +
+      `This will permanently delete ${count} staging row(s), any approved ` +
+      `transactions sourced from them, and free the associated dedup keys. ` +
+      `Cannot be reversed.`
+    )) return;
+
+    btn.disabled  = true;
+    btn.innerText = '…';
+    try {
+      const res  = await fetch(`/api/import-batch/${id}/undo`, {method: 'POST'});
+      const data = await res.json();
+      if (data.ok) {
+        alert(
+          `Undone: ${data.filename}\n` +
+          `• ${data.staging_deleted} staging deleted\n` +
+          `• ${data.trx_deleted} transactions deleted\n` +
+          `• ${data.kdk_freed} dedup keys freed`
+        );
+        location.reload();
+      } else {
+        alert('Undo failed: ' + (data.error || 'unknown'));
+        btn.disabled  = false;
+        btn.innerText = 'Undo';
+      }
+    } catch (e) {
+      alert('Undo failed: ' + e.message);
+      btn.disabled  = false;
+      btn.innerText = 'Undo';
+    }
+  });
+});
+</script>
+
+{% endblock %}

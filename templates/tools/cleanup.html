@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}Data Cleanup — Personal Financial Tracker{% endblock %}
+{% block page_title %}Data Cleanup{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="width:100%">
+
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:22px">
+    <div class="text-sm text-2" style="flex:1;line-height:1.6">
+      Data hygiene, grouped by correction type. Review each item,
+      edit if needed, and save it individually. <strong>Ignore</strong> hides a
+      specific finding forever.
+    </div>
+    {% if scan.ignored_count %}
+    <button class="btn btn-ghost btn-sm" id="cu-clear-ignored"
+            title="Un-hide everything previously ignored">
+      Ignored: {{ scan.ignored_count }} — clear
+    </button>
+    {% endif %}
+  </div>
+
+  <!-- ═══ 1. VENDORS ═══ -->
+  <div class="card" style="margin-bottom:22px">
+    <div class="card-header"><h2>Vendors ({{ scan.vendor_fixes | length }})</h2></div>
+    <div class="card-body">
+      {% if scan.vendor_fixes %}
+      <div class="text-xs text-2" style="margin-bottom:8px">
+        Names that can be cleaned up or don't read like a real entity. The
+        suggestion is editable — fix it, then Save. Renames apply to every
+        transaction with that vendor.
+      </div>
+      <table class="trx-table-uniform" style="width:100%;font-size:12.5px">
+        <thead><tr><th class="left">Current name</th><th>Rows</th>
+          <th class="left" style="width:32%">Corrected name</th>
+          <th style="width:170px"></th></tr></thead>
+        <tbody>
+        {% for f in scan.vendor_fixes %}
+          <tr>
+            <td class="left" style="max-width:420px;overflow:hidden;text-overflow:ellipsis"
+                title="{{ f['vendor'] }}">{{ f['vendor'] }}</td>
+            <td>{{ f['n'] }}</td>
+            <td class="left">
+              <input class="form-control cu-vendor-to" value="{{ f['suggested'] }}"
+                     data-from="{{ f['vendor'] }}" placeholder="Plain-English name…"
+                     style="font-size:12px;width:100%">
+            </td>
+            <td>
+              <button class="btn btn-primary btn-sm cu-vendor-save">Save</button>
+              <button class="btn btn-ghost btn-sm cu-ignore" data-key="{{ f['key'] }}">Ignore</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<div class="text-sm text-3" style="font-style:italic">All vendor names look clean. ✓</div>{% endif %}
+    </div>
+  </div>
+
+  <!-- ═══ 2. TAGS ═══ -->
+  <div class="card" style="margin-bottom:22px">
+    <div class="card-header"><h2>Tags — suspected duplicates ({{ scan.tag_merges | length }})</h2></div>
+    <div class="card-body">
+      {% if scan.tag_merges %}
+      <div class="text-xs text-2" style="margin-bottom:8px">
+        Tags that are probably the same thing — case variants (Trip/trip),
+        prefixes (gym/gym membership). Merge re-points
+        every transaction to the keeper and removes the duplicate tag.
+      </div>
+      <table class="trx-table-uniform" style="width:100%;font-size:12.5px">
+        <tbody>
+        {% for m in scan.tag_merges %}
+          <tr>
+            <td class="left">'{{ m['from'] }}' ({{ m['from_n'] }} uses)</td>
+            <td class="left" style="color:var(--green)">merges into '{{ m['into'] }}' ({{ m['into_n'] }} uses)</td>
+            <td style="width:170px">
+              <button class="btn btn-primary btn-sm cu-tag-merge"
+                      data-from="{{ m['from_id'] }}" data-into="{{ m['into_id'] }}">Merge</button>
+              <button class="btn btn-ghost btn-sm cu-ignore" data-key="{{ m['key'] }}">Ignore</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="text-sm text-3" style="font-style:italic">No suspected duplicate tags. ✓</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ═══ 3. MISSING DATES ═══ -->
+  <div class="card" style="margin-bottom:22px">
+    <div class="card-header"><h2>Missing dates ({{ scan.missing_dates | length }})</h2></div>
+    <div class="card-body">
+      {% if scan.missing_dates %}
+      <div class="text-xs text-2" style="margin-bottom:8px">
+        Rows missing payment / statement / post dates (usually manual entries).
+        Cash-basis rollups rely on payment date. <em>Fill</em> sets the missing
+        ones to the transaction date — the same rule imports use for non-card
+        accounts.
+      </div>
+      <table class="trx-table-uniform" style="width:100%;font-size:12.5px">
+        <thead><tr><th>ID</th><th class="left">Vendor</th><th>Trx date</th>
+          <th>Amount</th><th class="left">Missing</th><th style="width:170px"></th></tr></thead>
+        <tbody>
+        {% for r in scan.missing_dates %}
+          <tr>
+            <td><a href="/transactions/{{ r['id'] }}" style="color:var(--navy)">#{{ r['id'] }}</a></td>
+            <td class="left">{{ r['vendor'] or '—' }}</td>
+            <td>{{ r['trx_date'] }}</td>
+            <td>{{ r['amount'] | amt }}</td>
+            <td class="left" style="color:var(--red)">{{ r['missing'] | join(' + ') }} date{{ 's' if r['missing']|length > 1 }}</td>
+            <td>
+              <button class="btn btn-primary btn-sm cu-fix-dates" data-id="{{ r['id'] }}">Fill</button>
+              <button class="btn btn-ghost btn-sm cu-ignore" data-key="{{ r['key'] }}">Ignore</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<div class="text-sm text-3" style="font-style:italic">No missing dates. ✓</div>{% endif %}
+    </div>
+  </div>
+
+  <!-- ═══ 4. POSSIBLE DUPLICATES ═══ -->
+  <div class="card" style="margin-bottom:22px">
+    <div class="card-header"><h2>Possible duplicates ({{ scan.dup_groups | length }} groups)</h2></div>
+    <div class="card-body">
+      {% if scan.dup_groups %}
+      <div class="text-xs text-2" style="margin-bottom:8px">
+        Same account, day, amount (signed — credits ≠ debits), and bank
+        description, <strong>from different imports</strong> (rows within one
+        Chase export can't be duplicates — those are real repeat purchases and
+        aren't flagged). Open the rows to compare; delete on the trx page if
+        truly double-imported; <em>Ignore</em> if legit.
+      </div>
+      <table class="trx-table-uniform" style="width:100%;font-size:12.5px">
+        <thead><tr><th class="left">Vendor</th><th>Date</th><th>Amount</th><th>Count</th>
+          <th class="left">Rows</th><th style="width:100px"></th></tr></thead>
+        <tbody>
+        {% for g in scan.dup_groups %}
+          <tr>
+            <td class="left">{{ g['vendor'] or '—' }}</td>
+            <td>{{ g['trx_date'] }}</td>
+            <td>{{ g['amt'] | amt }}</td>
+            <td>{{ g['n'] }}</td>
+            <td class="left">
+              {% for id in g['ids'].split(',') %}
+                <a href="/transactions/{{ id }}" style="color:var(--navy);margin-right:6px">#{{ id }}</a>
+              {% endfor %}
+            </td>
+            <td><button class="btn btn-ghost btn-sm cu-ignore" data-key="{{ g['key'] }}">Ignore</button></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<div class="text-sm text-3" style="font-style:italic">No duplicate suspects. ✓</div>{% endif %}
+    </div>
+  </div>
+
+  <!-- ═══ 5. CATEGORIES ═══ -->
+  <div class="card" style="margin-bottom:22px">
+    <div class="card-header"><h2>Categories to re-pick ({{ scan.bad_cats | length }})</h2></div>
+    <div class="card-body">
+      {% if scan.bad_cats %}
+      <div class="text-xs text-2" style="margin-bottom:8px">
+        L1/L2 missing or not in the canonical category tree. Pick
+        the right categories here and Save.
+      </div>
+      <table class="trx-table-uniform" style="width:100%;font-size:12.5px">
+        <thead><tr><th>ID</th><th class="left">Vendor</th><th>Date</th>
+          <th>Amount</th><th class="left" style="width:16%">L1</th>
+          <th class="left" style="width:16%">L2</th><th style="width:170px"></th></tr></thead>
+        <tbody>
+        {% for r in scan.bad_cats %}
+          <tr class="cu-cat-row" data-id="{{ r['id'] }}"
+              data-type="{{ r['trx_type'] }}" data-l1="{{ r['l1_category'] or '' }}"
+              data-l2="{{ r['l2_category'] or '' }}">
+            <td><a href="/transactions/{{ r['id'] }}" style="color:var(--navy)">#{{ r['id'] }}</a></td>
+            <td class="left">{{ r['vendor'] or '—' }}</td>
+            <td>{{ r['trx_date'] }}</td>
+            <td>{{ r['amount'] | amt }}</td>
+            <td class="left"><select class="form-control cu-cat-l1" style="font-size:12px;width:100%"></select></td>
+            <td class="left"><select class="form-control cu-cat-l2" style="font-size:12px;width:100%"></select></td>
+            <td>
+              <button class="btn btn-primary btn-sm cu-cat-save">Save</button>
+              <button class="btn btn-ghost btn-sm cu-ignore" data-key="{{ r['key'] }}">Ignore</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<div class="text-sm text-3" style="font-style:italic">All categories valid. ✓</div>{% endif %}
+    </div>
+  </div>
+
+  <!-- ═══ 6. MISSING RECEIPTS ═══ -->
+  <div class="card" style="margin-bottom:22px">
+    <div class="card-header">
+      <h2>Missing receipts ({{ scan.missing_receipts | length }})</h2>
+    </div>
+    <div class="card-body">
+      {% if scan.missing_receipts %}
+      <div class="text-xs text-2" style="margin-bottom:8px">
+        Every active expense with no receipt
+        and no "no receipt needed" flag. Resolve by dropping the receipt in
+        the inbox (Scan → match → it disappears from here), or click
+        <em>No receipt needed</em>.
+      </div>
+      <div style="max-height:520px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius)">
+      <table class="trx-table-uniform" style="width:100%;font-size:12.5px">
+        <thead><tr><th>ID</th><th class="left">Vendor</th><th>Date</th><th>Amount</th>
+          <th class="left">Category</th><th style="width:220px"></th></tr></thead>
+        <tbody>
+        {% for r in scan.missing_receipts %}
+          <tr>
+            <td><a href="/transactions/{{ r['id'] }}" style="color:var(--navy)">#{{ r['id'] }}</a></td>
+            <td class="left">{{ r['vendor'] or '—' }}</td>
+            <td>{{ r['trx_date'] }}</td>
+            <td>{{ r['amount'] | amt }}</td>
+            <td class="left text-2">{{ r['l1_category'] or '—' }}{{ (' / ' + r['l2_category']) if r['l2_category'] }}</td>
+            <td>
+              <button class="btn btn-primary btn-sm cu-noreceipt" data-id="{{ r['id'] }}">No receipt needed</button>
+              <button class="btn btn-ghost btn-sm cu-ignore" data-key="{{ r['key'] }}">Ignore</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}<div class="text-sm text-3" style="font-style:italic">Everything has a receipt (or is flagged). ✓</div>{% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+const CU_CAT_MAP = {{ scan.cat_map | tojson }};   // trx_type -> {l1: [l2,...]}
+async function cuPost(url, body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const d=await r.json(); if(!d.ok) throw new Error(d.error||'failed'); return d;
+}
+function done(btn, row){
+  btn.textContent='✓'; btn.disabled=true; btn.style.color='var(--green)';
+  if(window._txSavedToast)_txSavedToast();   // unified Saved toast (2026-07-05)
+  if(row) setTimeout(()=>row.remove(), 500);
+}
+
+// Per-row vendor save
+document.querySelectorAll('.cu-vendor-save').forEach(b=>b.addEventListener('click', async ()=>{
+  const row=b.closest('tr'), inp=row.querySelector('.cu-vendor-to');
+  const to=inp.value.trim(); if(!to){inp.focus();return;}
+  b.disabled=true;
+  try{await cuPost('/api/cleanup/rename-vendor',{from:inp.dataset.from,to}); done(b,row);}
+  catch(e){b.disabled=false;alert(e.message);}
+}));
+
+// Tag merge / delete
+document.querySelectorAll('.cu-tag-merge').forEach(b=>b.addEventListener('click', async ()=>{
+  b.disabled=true;
+  try{await cuPost('/api/cleanup/merge-tag',{from_id:+b.dataset.from,into_id:+b.dataset.into}); done(b,b.closest('tr'));}
+  catch(e){b.disabled=false;alert(e.message);}
+}));
+// Category pickers — canonical dropdowns per row's type
+document.querySelectorAll('.cu-cat-row').forEach(row=>{
+  const map=CU_CAT_MAP[row.dataset.type||'expense']||{};
+  const l1=row.querySelector('.cu-cat-l1'), l2=row.querySelector('.cu-cat-l2');
+  // esc comes from static/js/shared.js (Phase 6).
+  l1.innerHTML='<option value="">—</option>'+Object.keys(map).map(x=>`<option ${x===row.dataset.l1?'selected':''}>${esc(x)}</option>`).join('');
+  const fillL2=()=>{const l2s=map[l1.value]||[];l2.innerHTML='<option value="">—</option>'+l2s.map(x=>`<option ${x===row.dataset.l2?'selected':''}>${esc(x)}</option>`).join('');};
+  l1.onchange=fillL2; fillL2();
+});
+document.querySelectorAll('.cu-cat-save').forEach(b=>b.addEventListener('click', async ()=>{
+  const row=b.closest('tr');
+  const l1=row.querySelector('.cu-cat-l1').value||null, l2=row.querySelector('.cu-cat-l2').value||null;
+  if(!l1){alert('Pick an L1 first.');return;}
+  b.disabled=true;
+  try{await cuPost(`/api/transactions/${row.dataset.id}`,{l1_category:l1,l2_category:l2}); done(b,row);}
+  catch(e){b.disabled=false;alert(e.message);}
+}));
+
+// Fill dates per row
+document.querySelectorAll('.cu-fix-dates').forEach(b=>b.addEventListener('click', async ()=>{
+  b.disabled=true;
+  try{await cuPost('/api/cleanup/fix-dates',{trx_id:+b.dataset.id}); done(b,b.closest('tr'));}
+  catch(e){b.disabled=false;alert(e.message);}
+}));
+
+// No-receipt flag per row
+document.querySelectorAll('.cu-noreceipt').forEach(b=>b.addEventListener('click', async ()=>{
+  b.disabled=true;
+  try{await cuPost('/api/cleanup/no-receipt',{trx_ids:[+b.dataset.id]}); done(b,b.closest('tr'));}
+  catch(e){b.disabled=false;alert(e.message);}
+}));
+
+// Ignore forever (works for table rows and tag pills)
+document.querySelectorAll('.cu-ignore').forEach(b=>b.addEventListener('click', async ()=>{
+  try{
+    await cuPost('/api/cleanup/ignore',{key:b.dataset.key});
+    const row=b.closest('tr')||b.closest('.pill'); if(row) row.remove();
+  }catch(e){alert(e.message);}
+}));
+
+// Clear the ignore list
+document.getElementById('cu-clear-ignored')?.addEventListener('click', async ()=>{
+  if(!confirm('Un-hide everything you previously ignored?'))return;
+  await cuPost('/api/cleanup/ignore',{clear:true}); location.reload();
+});
+</script>
+
+{% endblock %}

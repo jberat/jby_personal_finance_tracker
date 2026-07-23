@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Receipt Orphans' if mode == 'orphans' else 'Receipt Review' }} — Personal Financial Tracker{% endblock %}
+{% block page_title %}{{ 'Receipt Orphans (unmatched)' if mode == 'orphans' else 'Receipt Review' }}{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div id="rv-root">
+
+  <!-- Saved toast -->
+  <div id="rv-save-indicator"
+       style="display:none;position:fixed;bottom:20px;right:20px;background:var(--navy);
+              color:#fff;padding:8px 16px;border-radius:var(--radius);font-size:13px;
+              z-index:300;box-shadow:0 2px 8px rgba(0,0,0,.15)">✓ Saved</div>
+
+  <!-- Progress -->
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+    <div id="rv-progress" class="text-sm text-2"></div>
+    <div style="flex:1;height:6px;background:var(--surface-alt);border-radius:99px;overflow:hidden">
+      <div id="rv-bar" style="height:100%;width:0;background:var(--navy);transition:width .2s"></div>
+    </div>
+    <div id="rv-counts" class="text-xs text-3"></div>
+    <button class="btn btn-ghost btn-sm" id="rv-scan" title="Scan the receipts inbox for new files">⟳ Scan inbox</button>
+  </div>
+
+  <!-- Active card -->
+  <div id="rv-card" class="card" style="display:none">
+    <div class="card-body" style="display:grid;grid-template-columns:1.1fr 1fr;gap:24px">
+
+      <!-- LEFT: receipt preview -->
+      <div>
+        <div class="text-xs text-3" style="margin-bottom:6px">
+          RECEIPT <span id="rv-file" style="color:var(--text-2)"></span>
+        </div>
+        <div id="rv-preview"
+             style="border:1px solid var(--border);border-radius:var(--radius);background:#fff;
+                    min-height:62vh;max-height:78vh;overflow:auto;display:flex;
+                    align-items:center;justify-content:center"></div>
+        <div id="rv-extracted" class="text-xs text-3" style="margin-top:8px;line-height:1.6"></div>
+      </div>
+
+      <!-- RIGHT: match + editable fields -->
+      <div>
+        <!-- Duplicate banner (2026-07-03) -->
+        <div id="rv-dup-banner" style="display:none;margin-bottom:12px;padding:12px 14px;
+             background:#FDECEC;border:1px solid #F5B5B5;border-radius:var(--radius)">
+          <div style="font-weight:700;color:#B42318;font-size:13px;margin-bottom:4px">
+            ⚠ DUPLICATE RECEIPT?
+          </div>
+          <div id="rv-dup-text" class="text-sm" style="color:#7A271A;line-height:1.5"></div>
+        </div>
+
+        <!-- Matched / selected transaction -->
+        <div id="rv-match-wrap">
+          <div class="text-xs text-3" style="margin-bottom:6px" id="rv-match-label">SUGGESTED MATCH</div>
+          <div id="rv-trx" class="card" style="margin:0 0 12px;background:var(--surface-alt)">
+            <div class="card-body" style="padding:14px"></div>
+          </div>
+
+          <!-- Editable fields (always visible) -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="grid-column:span 2">
+              <div class="text-xs text-3" style="margin-bottom:3px">VENDOR</div>
+              <input id="rv-vendor" class="form-control" placeholder="Vendor name…"
+                     style="font-size:13px;width:100%">
+            </div>
+            <div>
+              <div class="text-xs text-3" style="margin-bottom:3px">L1 CATEGORY</div>
+              <select id="rv-l1" class="form-control" style="font-size:13px;width:100%"></select>
+            </div>
+            <div>
+              <div class="text-xs text-3" style="margin-bottom:3px">L2 CATEGORY</div>
+              <select id="rv-l2" class="form-control" style="font-size:13px;width:100%"></select>
+            </div>
+          </div>
+
+          <div class="text-xs text-3" style="margin:12px 0 3px">NOTE</div>
+          <textarea id="rv-note" class="form-control" rows="2" placeholder="Add a note…"
+                    style="font-size:13px;width:100%;resize:vertical"></textarea>
+
+          <div class="text-xs text-3" style="margin:12px 0 3px">TAGS</div>
+          <div id="rv-tag-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+          <input id="rv-tag-input" class="form-control" placeholder="Type a tag, press Enter"
+                 style="font-size:12px">
+        </div>
+
+        <!-- Search (orphan / repick / link) -->
+        <div id="rv-search-wrap" style="display:none">
+          <div class="text-xs text-3" style="margin-bottom:6px" id="rv-search-label">FIND THE TRANSACTION</div>
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <input type="search" id="rv-search-q" class="form-control"
+                   placeholder="Search vendor (≥2 chars)…" style="flex:1;font-size:13px">
+            <input type="number" id="rv-search-amt" class="form-control" placeholder="amt"
+                   step="0.01" style="width:84px;font-size:12px;text-align:right">
+          </div>
+          <div id="rv-search-results"
+               style="max-height:300px;overflow-y:auto;border:1px solid var(--border);
+                      border-radius:var(--radius);font-size:12px;background:var(--surface-alt)">
+            <div class="text-3 text-center" style="padding:18px;font-style:italic">Type a vendor to search…</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="rv-search-cancel" style="margin-top:8px;display:none">Cancel</button>
+        </div>
+
+        <!-- Split panel -->
+        <div id="rv-split" class="card" style="display:none;margin:12px 0 0;border-color:var(--navy)">
+          <div class="card-body" style="padding:14px">
+            <div style="display:flex;align-items:center;margin-bottom:8px">
+              <div class="text-xs text-3">SPLIT INTO MULTIPLE LINES</div>
+              <div style="margin-left:auto" class="text-xs" id="rv-split-sum"></div>
+            </div>
+            <div id="rv-split-rows" style="display:flex;flex-direction:column;gap:8px"></div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+              <button class="btn btn-ghost btn-sm" id="rv-split-add">+ Add line</button>
+              <button class="btn btn-primary btn-sm" id="rv-split-apply" style="margin-left:auto">Apply split</button>
+              <button class="btn btn-ghost btn-sm" id="rv-split-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="margin-top:18px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+          <button class="btn btn-primary" id="rv-confirm"
+                  style="font-size:15px;padding:11px 24px">✓ Confirm &amp; file → next</button>
+          <button class="btn btn-secondary" id="rv-btn-split"
+                  style="font-size:14px;padding:9px 16px">⑃ Split</button>
+          <button class="btn btn-secondary" id="rv-btn-link"
+                  style="font-size:14px;padding:9px 16px">⛓ Link</button>
+          <button class="btn btn-ghost btn-sm" id="rv-btn-repick">Not this match</button>
+          <span style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" id="rv-discard"
+                    style="display:none;color:#B42318;border-color:#F5B5B5">🗑 Discard duplicate</button>
+            <button class="btn btn-ghost btn-sm" id="rv-skip" style="color:var(--text-3)">Skip</button>
+            <button class="btn btn-ghost btn-sm" id="rv-notreceipt" style="color:var(--text-3)">Not a receipt</button>
+          </span>
+        </div>
+        <div id="rv-msg" class="text-xs" style="margin-top:8px;min-height:16px"></div>
+        <div id="rv-shortcut-hint" class="text-xs text-3" style="margin-top:6px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div id="rv-done" class="empty-state" style="display:none;padding:60px 20px;max-width:560px;margin:0 auto;text-align:center">
+    <div style="font-size:36px;margin-bottom:8px">✓</div>
+    <div style="color:var(--text-1);font-weight:600;font-size:16px">Review complete</div>
+    <div class="text-2" style="font-size:13px;margin-top:8px;line-height:1.6" id="rv-done-msg"></div>
+    <div style="margin-top:16px"><a class="btn btn-primary btn-sm" href="javascript:location.reload()">Reload</a></div>
+  </div>
+</div>
+
+<script>
+const ITEMS     = {{ items | tojson }};
+const CAT_MAP   = {{ cat_map | tojson }};   // trx_type -> {l1:[l2,...]}
+const SHORTCUTS = {{ shortcuts | tojson }}; // keymap (Docs & Settings → Shortcuts)
+
+let idx=0, confirmedCount=0, skippedCount=0;
+let cur=null;          // {item, trxId, trx, repicked}
+let searchMode='match';// 'match' (set target) | 'link' (link to target)
+
+// esc / money come from static/js/shared.js.
+function $(id){return document.getElementById(id);}
+function msg(t,c){const m=$('rv-msg');m.textContent=t;m.style.color=c||'var(--text-2)';}
+// Unified Saved feedback: the standard top-right green
+// toast from shared.js, same as the trx tables.
+function showSaved(){if(window._txSavedToast)_txSavedToast();}
+
+function render(){
+  if(idx>=ITEMS.length) return finish();
+  const item=ITEMS[idx];
+  cur={item, trxId:item.match_trx_id||null, trx:null, repicked:false};
+  $('rv-card').style.display=''; $('rv-done').style.display='none';
+  $('rv-progress').textContent=`Receipt ${idx+1} of ${ITEMS.length}`;
+  $('rv-bar').style.width=`${(idx/ITEMS.length)*100}%`;
+  $('rv-counts').textContent=`${confirmedCount} filed · ${skippedCount} skipped`;
+  msg(''); $('rv-file').textContent=item.filename||'';
+  $('rv-split').style.display='none';
+
+  // Duplicate banner (2026-07-03): pipeline-flagged duplicates AND queued
+  // matches whose transaction already has a filed receipt.
+  const isDup = item.status==='suspected_duplicate' || item.trx_has_receipt;
+  $('rv-dup-banner').style.display = isDup ? '' : 'none';
+  $('rv-discard').style.display    = isDup ? '' : 'none';
+  if(isDup){
+    $('rv-dup-text').textContent = item.notes
+      || `The matched transaction already has a receipt filed. If this is the same receipt uploaded twice, hit Discard — otherwise Confirm attaches it as an additional copy.`;
+  }
+
+  const pv=$('rv-preview'), url='/api/receipts/preview?path='+encodeURIComponent(item.preview_path);
+  if(item.ext==='pdf') pv.innerHTML=`<embed src="${url}#toolbar=0" type="application/pdf" style="width:100%;height:76vh">`;
+  else if(['png','jpg','jpeg','gif','webp'].includes(item.ext)) pv.innerHTML=`<img src="${url}" style="max-width:100%;max-height:77vh;object-fit:contain;display:block">`;
+  else pv.innerHTML=`<div style="padding:24px;text-align:center;color:var(--text-3);font-size:12px">${(item.ext||'?').toUpperCase()} — no preview. <a href="${url}" target="_blank" style="color:var(--navy)">Open ↗</a></div>`;
+
+  $('rv-extracted').innerHTML=`Pipeline read — vendor: <strong>${esc(item.extracted_vendor)||'—'}</strong> · amount: <strong>${item.extracted_amount?money(item.extracted_amount):'—'}</strong> · date: <strong>${esc(item.extracted_date)||'—'}</strong> <span class="pill" style="margin-left:6px;font-size:10px;padding:1px 7px;background:var(--surface-alt);color:var(--text-2)">${item.status}</span>`;
+
+  if(cur.trxId) loadTrx(cur.trxId); else showSearch('match');
+}
+
+// ── Load + render the target transaction (source of truth = meta) ──
+async function loadTrx(trxId){
+  try{
+    const d=await (await fetch(`/api/transactions/${trxId}/meta`)).json();
+    if(!d.ok){msg('Could not load trx '+trxId,'var(--red)');return;}
+    cur.trx=d; cur.trxId=trxId;
+    renderPanel();
+  }catch(e){msg('Load failed: '+e.message,'var(--red)');}
+}
+
+function renderPanel(){
+  const t=cur.trx;
+  $('rv-match-wrap').style.display='';
+  $('rv-search-wrap').style.display='none';
+  $('rv-confirm').disabled=false;
+  $('rv-btn-split').style.display=''; $('rv-btn-link').style.display=''; $('rv-btn-repick').style.display='';
+  $('rv-match-label').textContent=cur.repicked?'SELECTED MATCH':'SUGGESTED MATCH';
+  $('rv-trx').querySelector('.card-body').innerHTML=`
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <span style="font-weight:700;color:var(--navy)">#${t.id}</span>
+      <span style="font-weight:600" id="rv-trx-vendor">${esc(t.vendor)||esc(t.raw_description)||'—'}</span>
+      <span style="margin-left:auto;font-family:var(--font-mono);font-weight:600">${money(t.amount)}</span>
+    </div>
+    <div class="text-sm text-2" style="margin-top:6px">
+      ${t.trx_date} · <strong>${esc(t.account_name)||'—'}</strong>${t.is_split?' · <span class="pill" style="font-size:10px;padding:1px 6px;background:var(--navy-light);color:var(--navy)">split</span>':''}
+    </div>`;
+  // vendor (editable — filed receipt is renamed from this, so fix typos here)
+  $('rv-vendor').value=t.vendor||'';
+  // categories
+  fillL1();
+  // note + tags
+  $('rv-note').value=t.note||'';
+  $('rv-tag-chips').innerHTML=''; (t.tags||[]).forEach(addTagChip);
+  // Duplicate banner re-check: two dup flavors share
+  // one status. An EXACT FILE duplicate (same file contents already filed)
+  // is about the FILE — it persists no matter which trx is targeted. A
+  // "matched trx already has a receipt" flag is about the TARGET — it's
+  // re-evaluated against the LIVE target on every panel render, so picking
+  // a different transaction ("not this match") clears it when the new
+  // target has no receipt (and raises it when it does).
+  const fileDup = cur.item.status==='suspected_duplicate'
+                  && /EXACT duplicate/i.test(cur.item.notes||'');
+  const dupNow = fileDup || !!t.has_receipt;
+  $('rv-dup-banner').style.display = dupNow ? '' : 'none';
+  $('rv-discard').style.display    = dupNow ? '' : 'none';
+  if(dupNow) $('rv-dup-text').textContent =
+    (fileDup && cur.item.notes)
+    || (!cur.repicked && cur.item.notes)
+    || `The matched transaction already has a receipt filed. If this is the same receipt uploaded twice, hit Discard — otherwise Confirm attaches it as an additional copy.`;
+}
+
+function fillL1(){
+  const t=cur.trx, map=CAT_MAP[t.trx_type]||{};
+  const l1s=Object.keys(map);
+  $('rv-l1').innerHTML='<option value="">—</option>'+l1s.map(l1=>`<option ${l1===t.l1_category?'selected':''}>${esc(l1)}</option>`).join('');
+  fillL2();
+}
+function fillL2(){
+  const t=cur.trx, map=CAT_MAP[t.trx_type]||{};
+  const l2s=map[$('rv-l1').value]||[];
+  $('rv-l2').innerHTML='<option value="">—</option>'+l2s.map(l2=>`<option ${l2===t.l2_category?'selected':''}>${esc(l2)}</option>`).join('');
+}
+
+async function saveTrx(fields){
+  const r=await fetch(`/api/transactions/${cur.trxId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(fields)});
+  if((await r.json()).ok) showSaved();
+}
+
+$('rv-l1').addEventListener('change', ()=>{cur.trx.l1_category=$('rv-l1').value||null; fillL2(); cur.trx.l2_category=$('rv-l2').value||null; saveTrx({l1_category:cur.trx.l1_category, l2_category:cur.trx.l2_category});});
+$('rv-l2').addEventListener('change', ()=>{cur.trx.l2_category=$('rv-l2').value||null; saveTrx({l2_category:cur.trx.l2_category});});
+
+// note (debounced)
+let noteTimer;
+$('rv-note').addEventListener('input', ()=>{clearTimeout(noteTimer);const v=$('rv-note').value;noteTimer=setTimeout(()=>saveTrx({note:v||null}),300);});
+
+// vendor (debounced; also updates the match card + filed-name preview)
+let vendorTimer;
+$('rv-vendor').addEventListener('input', ()=>{
+  clearTimeout(vendorTimer);
+  const v=$('rv-vendor').value.trim();
+  vendorTimer=setTimeout(async ()=>{
+    if(!cur.trxId) return;
+    cur.trx.vendor=v||null;
+    await saveTrx({vendor:v||null});
+    const span=document.getElementById('rv-trx-vendor');
+    if(span) span.textContent=v||cur.trx.raw_description||'—';
+  },400);
+});
+
+// tags — save on Enter OR on clicking away. Failures
+// surface as a red message instead of dying silently.
+async function saveTag(){
+  const inp=$('rv-tag-input'), name=inp.value.trim().toLowerCase();
+  if(!name||!cur||!cur.trxId)return;
+  try{
+    const r=await fetch(`/api/transactions/${cur.trxId}/tags`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const d=await r.json().catch(()=>({ok:false,error:'HTTP '+r.status}));
+    if(d.ok){inp.value='';addTagChip(d.tag);showSaved();}
+    else msg('Tag save failed: '+(d.error||('HTTP '+r.status)),'var(--red)');
+  }catch(e){msg('Tag save failed: '+e.message,'var(--red)');}
+}
+$('rv-tag-input').addEventListener('keydown', e=>{
+  if(e.key!=='Enter')return; e.preventDefault(); saveTag();
+});
+$('rv-tag-input').addEventListener('blur', saveTag);
+function addTagChip(tag){
+  const chip=document.createElement('span'); chip.className='pill';
+  chip.style.cssText='background:var(--navy-light);color:var(--navy);display:flex;align-items:center;gap:4px;font-size:11px';
+  chip.innerHTML=`${esc(tag.name)} <button title="Remove" style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:13px;line-height:1;padding:0">×</button>`;
+  chip.querySelector('button').onclick=async ()=>{
+    try{
+      const r=await fetch(`/api/transactions/${cur.trxId}/tags/${tag.id}`,{method:'DELETE'});
+      const d=await r.json().catch(()=>({ok:false}));
+      if(d.ok){chip.remove();showSaved();}
+      else msg('Tag remove failed'+(d.error?': '+d.error:''),'var(--red)');
+    }catch(e){msg('Tag remove failed: '+e.message,'var(--red)');}
+  };
+  $('rv-tag-chips').appendChild(chip);
+}
+
+// ── Search (match / repick / link) ──
+function showSearch(mode){
+  searchMode=mode;
+  $('rv-match-wrap').style.display='none';
+  $('rv-split').style.display='none';
+  $('rv-search-wrap').style.display='';
+  $('rv-search-label').textContent = mode==='link' ? 'LINK TO ANOTHER TRANSACTION' : 'FIND THE TRANSACTION';
+  $('rv-confirm').disabled = (mode!=='link') && !cur.trxId;
+  $('rv-btn-split').style.display='none'; $('rv-btn-link').style.display='none'; $('rv-btn-repick').style.display='none';
+  $('rv-search-cancel').style.display = (mode==='link' || cur.trxId) ? '' : 'none';
+  $('rv-search-q').value=cur.item.extracted_vendor||'';
+  $('rv-search-amt').value=cur.item.extracted_amount||'';
+  $('rv-search-results').innerHTML='<div class="text-3 text-center" style="padding:18px;font-style:italic">Type a vendor to search…</div>';
+  if(($('rv-search-q').value||'').trim().length>=2) runSearch();
+  $('rv-search-q').focus();
+}
+$('rv-search-cancel').onclick=()=>{ if(cur.trxId) renderPanel(); };
+let searchTimer,lastResults=[];
+function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,250);}
+async function runSearch(){
+  const q=$('rv-search-q').value.trim(),amt=$('rv-search-amt').value.trim(),out=$('rv-search-results');
+  // Vendor, amount, or both. Amount alone filters ±10%.
+  if(q.length<2 && !amt){out.innerHTML='<div class="text-3 text-center" style="padding:18px;font-style:italic">Type a vendor and/or an amount…</div>';return;}
+  out.innerHTML='<div class="text-3 text-center" style="padding:18px">Searching…</div>';
+  const u=new URL('/api/receipts/trx-search',location.origin);
+  if(q.length>=2)u.searchParams.set('q',q); if(amt)u.searchParams.set('amount',amt); u.searchParams.set('limit','15');
+  try{
+    const d=await (await fetch(u)).json();
+    if(!d.ok||!d.rows.length){lastResults=[];out.innerHTML='<div class="text-3 text-center" style="padding:18px;font-style:italic">No matching transactions.</div>';return;}
+    lastResults=d.rows;
+    out.innerHTML=d.rows.map((t,i)=>`
+      <div style="padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;gap:8px;align-items:center" onclick="pickIdx(${i})">
+        <span style="font-weight:600;color:var(--navy);min-width:42px">#${t.id}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.vendor||t.raw_description||'').slice(0,38)} <span class="dim" style="font-size:11px">${t.trx_date}</span></span>
+        <span style="font-family:var(--font-mono);font-size:11px;min-width:60px;text-align:right">${money(t.amount)}</span>
+        ${t.has_receipt?'<span class="pill" style="background:var(--surface-alt);color:var(--red);font-size:10px;padding:1px 6px">has rcpt</span>':'<span style="width:62px"></span>'}
+      </div>`).join('');
+  }catch(e){out.innerHTML=`<div class="text-3" style="padding:18px;color:var(--red)">Search failed: ${e.message}</div>`;}
+}
+async function pickIdx(i){
+  const t=lastResults[i]; if(!t)return;
+  if(searchMode==='link'){
+    const r=await fetch(`/api/transactions/${cur.trxId}/links`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({linked_id:t.id})});
+    if((await r.json()).ok){showSaved();msg(`Linked to #${t.id}.`,'var(--green)');renderPanel();}
+    else msg('Link failed.','var(--red)');
+    return;
+  }
+  cur.repicked=true; loadTrx(t.id);
+}
+
+// ── Split ──
+$('rv-btn-split').onclick=()=>{
+  $('rv-split-rows').innerHTML=''; addSplitRow(Math.abs(cur.trx.amount)); addSplitRow(0); recalcSplit();
+  $('rv-split').style.display='';
+};
+$('rv-split-cancel').onclick=()=>{$('rv-split').style.display='none';};
+$('rv-split-add').onclick=()=>{addSplitRow(0);recalcSplit();};
+function addSplitRow(amount){
+  const t=cur.trx, row=document.createElement('div');
+  row.className='rv-split-row';
+  row.style.cssText='display:grid;grid-template-columns:78px 1fr 1fr 22px;gap:6px;align-items:center';
+  row.innerHTML=`<input type="number" class="form-control sp-amt" step="0.01" min="0" value="${amount?amount.toFixed(2):''}" placeholder="amt" style="font-size:12px;text-align:right">
+    <select class="form-control sp-l1" style="font-size:12px"></select>
+    <select class="form-control sp-l2" style="font-size:12px"></select>
+    <span class="sp-del" style="cursor:pointer;color:var(--text-3);text-align:center" title="remove">✕</span>`;
+  $('rv-split-rows').appendChild(row);
+  const map=CAT_MAP[t.trx_type]||{}, l1s=Object.keys(map);
+  const l1=row.querySelector('.sp-l1'), l2=row.querySelector('.sp-l2');
+  l1.innerHTML=l1s.map(x=>`<option ${x===t.l1_category?'selected':''}>${esc(x)}</option>`).join('');
+  const fl2=()=>{l2.innerHTML=(map[l1.value]||[]).map(x=>`<option ${x===t.l2_category?'selected':''}>${esc(x)}</option>`).join('');};
+  l1.onchange=fl2; fl2();
+  row.querySelector('.sp-amt').addEventListener('input',recalcSplit);
+  row.querySelector('.sp-del').onclick=()=>{row.remove();recalcSplit();};
+}
+function recalcSplit(){
+  const target=Math.abs(cur.trx.amount); let sum=0;
+  document.querySelectorAll('#rv-split-rows .sp-amt').forEach(i=>sum+=parseFloat(i.value||0));
+  const ok=Math.abs(sum-target)<0.02;
+  $('rv-split-sum').innerHTML=`<span style="color:${ok?'var(--green)':'var(--red)'}">${money(sum)} / ${money(target)}</span>`;
+  $('rv-split-apply').disabled=!ok;
+}
+$('rv-split-apply').onclick=async ()=>{
+  const t=cur.trx;
+  const splits=[...document.querySelectorAll('#rv-split-rows .rv-split-row')].map(r=>({amount:parseFloat(r.querySelector('.sp-amt').value||0),trx_type:t.trx_type,owner:t.owner,l1_category:r.querySelector('.sp-l1').value,l2_category:r.querySelector('.sp-l2').value}));
+  if(splits.length<2){msg('Need at least 2 lines.','var(--red)');return;}
+  const d=await (await fetch(`/api/transactions/${cur.trxId}/split`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({splits})})).json();
+  if(d.ok){$('rv-split').style.display='none';showSaved();msg(`Split into ${splits.length} lines — confirm to file the receipt across the family.`,'var(--green)');loadTrx(cur.trxId);}
+  else msg('Split failed: '+(d.error||'?'),'var(--red)');
+};
+
+// ── Link / repick / skip / not-a-receipt ──
+$('rv-btn-link').onclick=()=>showSearch('link');
+$('rv-btn-repick').onclick=()=>{cur.trxId=null;cur.repicked=true;showSearch('match');};
+$('rv-skip').onclick=()=>{skippedCount++;idx++;render();};
+
+$('rv-discard').onclick=async ()=>{
+  if(!confirm('Discard this duplicate? The file moves to the receipts trash folder (recoverable), and the row leaves review.'))return;
+  $('rv-discard').disabled=true;
+  const d=await (await fetch(`/api/receipts/${cur.item.id}/discard`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+  if(d.ok){idx++;render();}
+  else{msg('Discard failed: '+(d.error||'?'),'var(--red)');}
+  $('rv-discard').disabled=false;
+};
+$('rv-notreceipt').onclick=async ()=>{
+  if(!confirm('Not a receipt? The file moves to the receipts trash folder (recoverable until you empty it) and leaves all views.'))return;
+  const d=await (await fetch(`/api/receipts/${cur.item.id}/not-receipt`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+  if(d.ok){idx++;render();}
+  else msg('Failed: '+(d.error||'?'),'var(--red)');
+};
+
+// ── Confirm & file ──
+$('rv-confirm').onclick=async ()=>{
+  if(!cur.trxId){msg('Pick a transaction first.','var(--red)');return;}
+  $('rv-confirm').disabled=true; msg('Filing…');
+  const d=await (await fetch(`/api/receipts/${cur.item.id}/confirm-file`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trx_id:cur.trxId})})).json();
+  if(d.ok){confirmedCount++;idx++;render();}
+  else{msg('Confirm failed: '+(d.error||'?'),'var(--red)');$('rv-confirm').disabled=false;}
+};
+
+function finish(){
+  $('rv-card').style.display='none'; $('rv-bar').style.width='100%';
+  $('rv-progress').textContent=`Done — ${ITEMS.length} reviewed`;
+  $('rv-counts').textContent=`${confirmedCount} filed · ${skippedCount} skipped`;
+  $('rv-done').style.display='';
+  $('rv-done-msg').innerHTML = confirmedCount
+    ? `Filed <strong>${confirmedCount}</strong> receipt${confirmedCount!==1?'s':''} — moved into place, paths saved.`
+    : `Nothing filed this pass.`;
+}
+
+$('rv-search-q').addEventListener('input',debounceSearch);
+$('rv-search-amt').addEventListener('input',debounceSearch);
+
+// ── Keyboard shortcuts (customize in Docs & Settings → Shortcuts) ──
+const SC_TARGETS = {confirm:'rv-confirm', skip:'rv-skip', not_receipt:'rv-notreceipt',
+                    repick:'rv-btn-repick', link:'rv-btn-link', split:'rv-btn-split',
+                    discard:'rv-discard'};
+function scLabel(k){return k==='Enter'?'⏎':k.length===1?k.toUpperCase():k;}
+$('rv-shortcut-hint').textContent = 'Keys: ' +
+  Object.entries(SC_TARGETS).map(([a,_])=>`${scLabel(SHORTCUTS[a]||'')} ${a.replace('_',' ')}`).join(' · ') +
+  '  (customize in Docs & Settings → Shortcuts)';
+document.addEventListener('keydown', e=>{
+  // never fire while typing, with modifiers, or when the card is hidden
+  const t=e.target, typing=t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.isContentEditable);
+  if(typing||e.metaKey||e.ctrlKey||e.altKey) return;
+  if($('rv-card').style.display==='none') return;
+  const key=(e.key===' '?'Space':e.key);
+  for(const [action,btnId] of Object.entries(SC_TARGETS)){
+    const want=SHORTCUTS[action]; if(!want) continue;
+    if(key.toLowerCase()===want.toLowerCase()){
+      const btn=$(btnId);
+      if(btn && !btn.disabled && btn.offsetParent!==null){e.preventDefault();btn.click();}
+      return;
+    }
+  }
+});
+
+// ── Scan inbox (runs the pipeline locally; nothing auto-files) ──
+$('rv-scan').addEventListener('click', async ()=>{
+  const b=$('rv-scan'); b.disabled=true; const prev=b.textContent; b.textContent='Scanning…';
+  try{
+    const d=await (await fetch('/api/receipts/scan-inbox',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    if(d.ok){
+      const parts=[];
+      if(d.queued)  parts.push(`${d.queued} queued`);
+      if(d.orphans) parts.push(`${d.orphans} orphaned`);
+      if(d.dupes)   parts.push(`${d.dupes} suspected dupes`);
+      if(parts.length){b.textContent=`✓ ${parts.join(' · ')} — reloading…`;setTimeout(()=>location.reload(),1200);}
+      else{b.textContent='✓ Inbox clear — nothing new';setTimeout(()=>{b.textContent=prev;b.disabled=false;},2500);}
+    }else{b.textContent='Scan failed — see Terminal';console.warn(d.output_tail||d.error);setTimeout(()=>{b.textContent=prev;b.disabled=false;},3000);}
+  }catch(err){b.textContent='Scan failed';console.warn(err);setTimeout(()=>{b.textContent=prev;b.disabled=false;},3000);}
+});
+
+if(!ITEMS.length) finish(); else render();
+</script>
+
+{% endblock %}

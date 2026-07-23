@@ -1,0 +1,433 @@
+{% extends "base.html" %}
+{% block title %}Payroll reconciliation #{{ rec.id }} — Personal Financial Tracker{% endblock %}
+{% block page_title %}Reconciliation #{{ rec.id }} —
+  {% if rec.entry_mode == 'ytd' %}YTD through {{ rec.pay_period_end }}
+  {% else %}{{ rec.pay_period_start }} to {{ rec.pay_period_end }}{% endif %}
+{% endblock %}
+{% block back_link %}
+<a href="/tools/payroll" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back to Payroll">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="margin-bottom:16px">
+  <span class="text-sm">
+    {% if rec.entry_mode == 'gusto' %}<span class="pill">Gusto CSV</span>
+    {% elif rec.entry_mode == 'ytd' %}<span class="pill">YTD true-up</span>
+    {% else %}<span class="pill">manual</span>{% endif %}
+    {% if rec.status == 'draft' %}
+      <span class="pill" style="background:var(--amber-bg);color:var(--amber)">draft</span>
+    {% elif rec.status == 'reconciled' %}
+      <span class="pill" style="background:var(--green-bg);color:var(--green)">reconciled</span>
+    {% else %}
+      <span class="pill" style="background:var(--red-bg);color:var(--red)">{{ rec.status }}</span>
+    {% endif %}
+  </span>
+  <span class="text-sm text-3" style="margin-left:8px">
+    Pay date {{ rec.pay_date }} · Created {{ rec.created_at }}{% if rec.reconciled_at %} · Reconciled {{ rec.reconciled_at }}{% endif %}
+  </span>
+</div>
+
+<style>
+  .match-indicator { display:inline-block; min-width:18px; font-size:13px; margin-left:6px; font-weight:600; }
+  .match-indicator.match    { color: var(--green); }
+  .match-indicator.diverged { color: var(--red); }
+  .match-indicator.empty    { color: var(--text-3); }
+  .total-status { font-size:12px; margin-left:8px; }
+  .total-status.match    { color: var(--green); }
+  .total-status.diverged { color: var(--red); }
+</style>
+
+{# ── Numbers ───────────────────────────────────────────────────────── #}
+<div class="card" style="max-width:760px">
+  <div class="card-body">
+    <form method="POST" action="/tools/payroll/draft" id="recon-form">
+      <input type="hidden" name="entry_mode"       value="{{ rec.entry_mode }}">
+      <input type="hidden" name="pay_period_start" value="{{ rec.pay_period_start or '' }}">
+      <input type="hidden" name="pay_period_end"   value="{{ rec.pay_period_end }}">
+      <input type="hidden" name="pay_date"         value="{{ rec.pay_date }}">
+      <input type="hidden" name="source_csv_filename" value="{{ rec.source_csv_filename or '' }}">
+      <input type="hidden" name="source_csv_path"     value="{{ rec.source_csv_path or '' }}">
+
+      <div style="font-weight:600;color:var(--navy);margin-bottom:10px;
+                  padding-bottom:6px;border-bottom:1px solid var(--border)">
+        {% if rec.entry_mode == 'ytd' %}Year-to-date — gross to net{% else %}Employee — gross to net{% endif %}
+      </div>
+      <div class="detail-grid">
+        {% for name, label, sign, is_total in [
+          ('gross_earnings',    'Gross Earnings',                 '+', False),
+          ('tax_federal',       'Federal Income Tax',             '−', False),
+          ('tax_state',         'State Withholding',              '−', False),
+          ('tax_ss',            'Social Security / FICA',         '−', False),
+          ('tax_medicare',      'Medicare',                       '−', False),
+          ('tax_other',         'Other Payroll Taxes',            '−', False),
+          ('pretax_retirement', 'Pre-tax Retirement (401k etc.)', '−', False),
+          ('pretax_other',      'Health / Other Pre-tax',         '−', False),
+          ('posttax_roth',      'Roth / Post-tax Retirement',     '−', False),
+          ('posttax_garnish',   'Garnishment / Other Post-tax',   '−', False),
+          ('other_plug',        'Other Adjustment (plug)',        '−', False),
+          ('net_pay',           'Net Pay',                        '=', True),
+        ] %}
+        <div class="detail-row" {% if is_total %}style="background:var(--surface-alt)"{% endif %}>
+          <span class="detail-label">{{ label }}</span>
+          <span class="detail-value" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span style="color:var(--text-3);font-weight:600;width:14px">{{ sign }}</span>
+            <span style="color:var(--text-3)">$</span>
+            <input class="form-control form-control-inline reconcilable" type="number" step="0.01"
+                   id="f-{{ name }}" name="{{ name }}"
+                   value="{{ '%.2f' | format(rec[name]) }}"
+                   data-gusto="{{ '%.2f' | format(source[name]) if source and name in source else '' }}"
+                   style="width:140px{% if is_total %};font-weight:600{% endif %}"
+                   {% if rec.status == 'reconciled' %}readonly{% endif %}>
+            <span class="match-indicator" data-for="{{ name }}"></span>
+            {% if is_total %}<span class="total-status" data-status-for="{{ name }}"></span>{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="form-group" style="margin-top:18px">
+        <label class="form-label">Retirement account (Investments)</label>
+        <select class="form-control" name="retirement_account" style="max-width:360px"
+                {% if rec.status == 'reconciled' %}disabled{% endif %}>
+          <option value="" {% if not rec.retirement_account %}selected{% endif %}>
+            auto — pick my retirement account
+          </option>
+          {% for a in inv_accounts %}
+          <option value="{{ a.name }}"
+                  {% if rec.retirement_account == a.name %}selected{% endif %}>
+            {{ a.name }} ({{ a.inv_group or 'Alternatives' }})
+          </option>
+          {% endfor %}
+          <option value="none" {% if rec.retirement_account == 'none' %}selected{% endif %}>
+            none — skip Investments sync
+          </option>
+        </select>
+        <div class="text-xs text-3" style="margin-top:6px;line-height:1.55">
+          The retirement amounts — pre-tax 401k <strong>and</strong>
+          Roth/post-tax alike — book as <strong>transfers</strong> (money into
+          your own retirement account, not income lost); if both exist they
+          share this target as two transfer rows.
+          {% if retirement_target.synced %}
+            Targeting <strong>{{ retirement_target.account }}</strong> — on
+            execute, Investments Sync records a contribution there on the pay
+            date.
+          {% elif inv_accounts %}
+            No account targeted — the transfer books under the generic
+            "{{ retirement_target.l1 }} / {{ retirement_target.l2 }}" category
+            and nothing lands in Investments.
+          {% else %}
+            No Investments accounts exist yet — the transfer books under the
+            generic "{{ retirement_target.l1 }} / {{ retirement_target.l2 }}"
+            category. To track it in Investments, create the account first
+            (Investments → Overview → add account), then reconcile — or
+            afterwards, edit the transfer's L2 to the account name and press
+            Sync on Investments → Transactions.
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:14px">
+        <label class="form-label">Note</label>
+        <input class="form-control" type="text" name="note" value="{{ rec.note or '' }}"
+               {% if rec.status == 'reconciled' %}readonly{% endif %}>
+      </div>
+
+      {% if rec.status != 'reconciled' %}
+      <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
+        <button class="btn btn-primary" type="submit">Update draft</button>
+        <span id="save-result" class="text-sm" style="display:none"></span>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{# ── Net deposit match ─────────────────────────────────────────────── #}
+{% set m = matches.net_deposit %}
+<div class="card" style="margin-top:24px;max-width:980px">
+  <div class="card-header">
+    <h2>Bank deposit match</h2>
+    <span class="text-sm text-3">
+      {% if m.status == 'matched' %}✓ found
+      {% elif m.status == 'not_applicable' %}n/a (YTD)
+      {% else %}not found{% endif %}
+    </span>
+  </div>
+  <div class="card-body">
+    <div class="text-sm text-2" style="margin-bottom:14px;line-height:1.6">
+      {% if rec.entry_mode == 'ytd' %}
+        YTD entries book standalone rows — a year of pay spans many deposits,
+        so there's no single deposit to split. The rows still sum to the YTD
+        net, so cash totals stay truthful.
+      {% else %}
+        If the net-pay deposit is already imported (an income transaction for
+        exactly {{ (m.expected)|amt }}), executing splits it in place. If not,
+        the gross-up rows book standalone — you can also import the deposit
+        first and come back.
+      {% endif %}
+    </div>
+    <table style="width:100%">
+      <thead>
+        <tr>
+          <th style="width:280px">Looking for</th>
+          <th>Status</th>
+          <th>Found transaction</th>
+          <th class="right">Expected $</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <strong>{{ m.label }}</strong>
+            <div class="text-xs text-3" style="margin-top:2px">{{ m.search }}</div>
+          </td>
+          <td>
+            {% if m.status == 'matched' %}
+              <span class="pill" style="background:var(--green-bg);color:var(--green)">✓ matched</span>
+              {% if m.candidates %}
+                <div class="text-xs text-3" style="margin-top:4px">
+                  ⚠ {{ m.candidates | length }} other candidate(s) — picked closest by date
+                </div>
+              {% endif %}
+            {% elif m.status == 'not_applicable' %}
+              <span class="pill">— n/a</span>
+            {% else %}
+              <span class="pill" style="background:var(--amber-bg);color:var(--amber)">not found</span>
+              <div class="text-xs text-3" style="margin-top:4px">will book standalone rows</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if m.trx %}
+              <a href="/transactions/{{ m.trx.id }}" target="_blank"
+                 style="color:var(--navy)">trx #{{ m.trx.id }}</a>
+              <div class="text-xs text-3" style="margin-top:2px">
+                {{ m.trx.trx_date }} · {{ m.trx.account_name }} · {{ m.trx.vendor or m.trx.raw_description[:30] }}
+              </div>
+            {% else %}
+              <span class="text-3">—</span>
+            {% endif %}
+          </td>
+          <td class="right mono">{{ (m.expected)|amt }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Projected gross-up rows ───────────────────────────────────────── #}
+<div class="card" style="margin-top:24px;max-width:980px">
+  <div class="card-header">
+    <h2>What executing will book</h2>
+    <span class="text-sm text-3">{{ plan.children | length }} row{% if plan.children | length != 1 %}s{% endif %}</span>
+  </div>
+  <div class="card-body">
+    <div class="text-sm text-2" style="margin-bottom:14px">
+      Strictly a preview — nothing writes until you execute.
+      {% if m.status == 'matched' %}The matched deposit becomes a split parent;
+      these children replace it and sum back to net.{% else %}These rows book
+      standalone on your checking account.{% endif %}
+    </div>
+    <table style="width:100%;font-size:13px">
+      {% for c in plan.children %}
+      <tr>
+        <td style="width:18px;color:var(--text-3)">{{ c.sign }}</td>
+        <td>
+          <span class="mono">{{ (c.amount | abs)|amt }}</span>
+          <span style="margin-left:8px">{{ c.l1 }} / {{ c.l2 }}</span>
+          {% if c.type == 'transfer' %}
+            <span class="pill" style="margin-left:6px">transfer</span>
+          {% endif %}
+        </td>
+        <td class="text-xs text-3" style="text-align:right">{{ c.note }}</td>
+      </tr>
+      {% endfor %}
+      <tr style="border-top:1px solid var(--border);font-weight:600">
+        <td>=</td>
+        <td>
+          <span class="mono">{{ (plan.children_sum)|amt }}</span>
+          <span style="margin-left:8px;color:var(--text-2);font-size:12px">
+            sum (should equal net pay {{ (rec.net_pay)|amt }})
+          </span>
+        </td>
+        <td class="text-xs" style="text-align:right;
+            color:{% if plan.ties %}var(--green){% else %}var(--red){% endif %}">
+          {% if plan.ties %}✓ ties{% else %}✗ off by {{ (plan.delta | abs)|amt }} — fix the numbers or use the plug{% endif %}
+        </td>
+      </tr>
+    </table>
+
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);
+                display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      {% if rec.status in ('draft', 'undone') %}
+        <button class="btn btn-primary" type="button" id="btn-execute"
+                {% if not plan.ties %}disabled style="opacity:0.55;cursor:not-allowed"
+                title="The math must tie before executing"{% endif %}>
+          {% if rec.status == 'undone' %}Re-execute{% else %}Confirm + book gross-up rows{% endif %}
+        </button>
+        <span class="text-sm text-3">
+          {% if not plan.ties %}
+            ⚠ Gross − taxes − pre-tax − post-tax − other must equal net before this can execute.
+          {% elif m.status == 'matched' %}
+            ✓ Ready — will split deposit trx #{{ m.trx.id }}.
+          {% else %}
+            ✓ Ready — will book {{ plan.children | length }} standalone rows.
+          {% endif %}
+          {% if rec.pretax_retirement and retirement_target.synced %}
+            Retirement {{ (rec.pretax_retirement)|amt }} syncs into
+            {{ retirement_target.account }} as a contribution.
+          {% endif %}
+          {% if rec.posttax_roth and retirement_target.synced %}
+            Roth {{ (rec.posttax_roth)|amt }} syncs into
+            {{ retirement_target.account }} as a contribution.
+          {% endif %}
+        </span>
+      {% elif rec.status == 'reconciled' %}
+        <span class="pill" style="background:var(--green-bg);color:var(--green)">✓ Reconciled</span>
+        <button class="btn btn-ghost" type="button" id="btn-undo"
+                style="color:var(--red)">Undo reconciliation</button>
+        <span class="text-sm text-3">
+          Deletes every booked row, restores the original deposit (if one was
+          split), and removes the synced Investments contribution (if still
+          untouched in the account).
+        </span>
+      {% endif %}
+      <span id="exec-result" class="text-sm" style="display:none;font-weight:600"></span>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Execute / Undo (AJAX; reload on success) ──────────────────────────
+async function _bindAction(btnId, url, confirmMsg) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    const result = document.getElementById('exec-result');
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Working…';
+    result.style.display = 'none';
+    try {
+      const res = await fetch(url, {method: 'POST', headers: {'Accept': 'application/json'}});
+      const data = await res.json();
+      if (data.ok) {
+        result.style.color = 'var(--green)';
+        result.textContent = '✓ Done — reloading…';
+        result.style.display = 'inline';
+        setTimeout(() => location.reload(), 600);
+      } else {
+        result.style.color = 'var(--red)';
+        result.textContent = `✗ ${data.error || 'Failed'}`;
+        result.style.display = 'inline';
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    } catch (e) {
+      result.style.color = 'var(--red)';
+      result.textContent = `✗ ${e.message}`;
+      result.style.display = 'inline';
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  });
+}
+_bindAction('btn-execute', '/tools/payroll/{{ rec.id }}/execute', null);
+_bindAction('btn-undo',    '/tools/payroll/{{ rec.id }}/undo',
+            'Undo this reconciliation? All booked rows are deleted and the original deposit (if split) is restored.');
+
+// ── Live indicators: per-line vs source snapshot + net-pay tie ───────
+const NUM = name => {
+  const el = document.getElementById('f-' + name);
+  return el ? parseFloat(el.value || '0') || 0 : 0;
+};
+const SRC = name => {
+  const el = document.getElementById('f-' + name);
+  const v = el?.dataset?.gusto;
+  return v ? parseFloat(v) : null;
+};
+
+function refreshAll() {
+  document.querySelectorAll('.match-indicator').forEach(el => {
+    const name = el.dataset.for;
+    const src = SRC(name);
+    if (src === null) { el.className = 'match-indicator empty'; el.textContent = ''; return; }
+    if (Math.abs(NUM(name) - src) < 0.005) {
+      el.className = 'match-indicator match';
+      el.textContent = '✓';
+      el.title = 'Matches the value parsed from the CSV';
+    } else {
+      el.className = 'match-indicator diverged';
+      el.textContent = '✗';
+      el.title = `Diverged from CSV: $${src.toFixed(2)}`;
+    }
+  });
+
+  const calc = NUM('gross_earnings')
+             - NUM('tax_federal') - NUM('tax_state')
+             - NUM('tax_ss') - NUM('tax_medicare') - NUM('tax_other')
+             - NUM('pretax_retirement') - NUM('pretax_other')
+             - NUM('posttax_roth') - NUM('posttax_garnish')
+             - NUM('other_plug');
+  const cur = NUM('net_pay');
+  const st = document.querySelector('[data-status-for="net_pay"]');
+  if (st) {
+    if (Math.abs(calc - cur) < 0.02) {
+      st.className = 'total-status match';
+      st.textContent = '✓ math reconciles (gross − taxes − pre-tax − post-tax − other = net)';
+    } else {
+      st.className = 'total-status diverged';
+      st.textContent = `✗ math says $${calc.toFixed(2)} — save after fixing, or use the plug`;
+    }
+  }
+}
+document.querySelectorAll('input.reconcilable').forEach(el =>
+  el.addEventListener('input', refreshAll));
+refreshAll();
+
+// ── AJAX draft update ────────────────────────────────────────────────
+{% if rec.status != 'reconciled' %}
+const form = document.getElementById('recon-form');
+form.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const btn = form.querySelector('button[type="submit"]');
+  const resultEl = document.getElementById('save-result');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Saving…';
+  resultEl.style.display = 'none';
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST',
+      headers: {'Accept': 'application/json'},
+      body: new FormData(form),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      resultEl.textContent = `✓ Updated draft #${data.id} — reloading…`;
+      resultEl.style.color = 'var(--green)';
+      resultEl.style.display = 'inline';
+      setTimeout(() => location.reload(), 500);
+    } else {
+      resultEl.textContent = `✗ ${data.error || 'Save failed'}`;
+      resultEl.style.color = 'var(--red)';
+      resultEl.style.display = 'inline';
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  } catch (e) {
+    resultEl.textContent = `✗ ${e.message}`;
+    resultEl.style.color = 'var(--red)';
+    resultEl.style.display = 'inline';
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

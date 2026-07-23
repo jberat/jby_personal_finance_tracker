@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Import Investment History — Personal Financial Tracker{% endblock %}
+{% block page_title %}Investments — Import History{% endblock %}
+{% block back_link %}
+<a href="/investments/overview" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:860px">
+
+  <div class="text-sm text-2" style="margin-bottom:18px;line-height:1.7">
+    The one-time historical catch-up: build ONE CSV with your entire
+    investment career — every contribution, withdrawal, move between
+    accounts, dated value point, and account closure — and load it here.
+    <a href="/investments/import/template" style="color:var(--navy)">
+    Download the template</a> (it includes a sample CD-to-brokerage
+    history). After the catch-up, ongoing money in/out comes from your
+    checking imports (Ledger → Sync), and moves/snapshots get entered on
+    the <a href="/investments/ledger" style="color:var(--navy)">Ledger</a>.
+  </div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>CSV columns</h2></div>
+    <div class="card-body text-sm text-2" style="line-height:1.8">
+      <code>date</code> — YYYY-MM-DD ·
+      <code>account</code> — must match an account name exactly (create
+      missing/closed-years accounts on the Overview first) ·
+      <code>type</code> — contribution / withdrawal / move / snapshot /
+      dividend / interest / fee / gain_loss / close ·
+      <code>amount</code> — positive dollars (all types except snapshot/close) ·
+      <code>to_account</code> — moves (required) and close (optional; blank = cashed out) ·
+      <code>value</code> — snapshots only: the account's absolute value that day ·
+      <code>note</code> — optional.
+      <div class="text-xs text-3" style="margin-top:8px">
+        Rows are processed in date order. Within one account keep it
+        chronological: contribute before you snapshot, snapshot before you
+        move/close. Import is all-or-nothing — any bad row rolls the whole
+        file back with the row number.
+      </div>
+    </div>
+  </div>
+
+  {% if result %}
+  <div class="alert success" style="margin-bottom:16px"><span>✓</span><span>{{ result }}
+    — see the <a href="/investments/overview">Overview</a>.</span></div>
+  {% endif %}
+
+  {% if errors %}
+  <div class="card" style="margin-bottom:16px;border-color:var(--red)">
+    <div class="card-header"><h2 style="color:var(--red)">Problems ({{ errors|length }})</h2></div>
+    <div class="card-body text-sm" style="color:var(--red);line-height:1.7">
+      {% for e in errors %}{{ e }}<br>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="POST" enctype="multipart/form-data" class="card"
+        id="inv-import-dropzone" style="margin-bottom:18px">
+    <div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="file" name="csv" id="inv-import-file" accept=".csv,.xlsx,.xlsm"
+             class="form-control" style="max-width:320px">
+      <button class="btn btn-ghost btn-sm" name="mode" value="preview">Preview</button>
+      <button class="btn btn-primary btn-sm" name="mode" value="commit"
+              onclick="return confirm('Import all rows? This writes lots + events for every row.')">
+        Import</button>
+      <a href="/investments/import/template" class="btn btn-ghost btn-sm" style="margin-left:auto">
+        ⬇ CSV template</a>
+    </div>
+  </form>
+  <script>
+    // Shared drag & drop (initDropzone, static/js/shared.js): drop a
+    // .csv/.xlsx/.xlsm anywhere on the upload card — assigns the file only;
+    // Preview / Import stay explicit (no auto-submit).
+    initDropzone(document.getElementById('inv-import-dropzone'),
+                 document.getElementById('inv-import-file'));
+  </script>
+
+  {% if preview %}
+  <div class="card">
+    <div class="card-header"><h2>Preview — {{ preview|length }} rows (nothing written yet)</h2></div>
+    <div class="card-body" style="padding:0">
+      <table class="trx-table-uniform" style="margin:0;font-size:12px">
+        <thead><tr><th>#</th><th>Date</th><th class="left">Account</th>
+          <th class="left">Type</th><th>Amount</th><th class="left">To</th>
+          <th>Value</th><th class="left">Note</th></tr></thead>
+        <tbody>
+        {% for r in preview %}
+          <tr>
+            <td>{{ r.n }}</td><td style="white-space:nowrap">{{ r.date }}</td>
+            <td class="left">{{ r.account }}</td><td class="left">{{ r.type }}</td>
+            <td style="text-align:right">{% if r.amount is not none %}${{ '{:,.2f}'.format(r.amount) }}{% else %}—{% endif %}</td>
+            <td class="left">{{ r.to_account or '' }}</td>
+            <td style="text-align:right">{% if r.value is not none %}${{ '{:,.2f}'.format(r.value) }}{% else %}—{% endif %}</td>
+            <td class="left text-2">{{ r.note or '' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

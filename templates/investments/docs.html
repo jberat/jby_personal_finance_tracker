@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}How Investments Works — Personal Financial Tracker{% endblock %}
+{% block page_title %}Investments — How it works{% endblock %}
+{% block back_link %}
+<a href="/investments/overview" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+<style>
+.docs h2{margin:0 0 10px}
+.docs .card{margin-bottom:18px}
+.docs p{line-height:1.6;color:var(--text-1);margin:0 0 10px}
+.docs li{line-height:1.55;margin-bottom:5px}
+.docs code{background:var(--bg-2,#f3f4f6);padding:1px 5px;border-radius:4px;
+  font-family:var(--font-mono);font-size:12.5px}
+.docs table{width:100%;border-collapse:collapse;font-size:13px}
+.docs th,.docs td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border)}
+.docs th{color:var(--text-3);font-weight:600}
+.pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;
+  font-weight:600;background:var(--bg-2,#eef);color:var(--navy)}
+</style>
+
+<div class="docs">
+
+<div class="text-xs" style="margin-bottom:14px;padding:8px 12px;border:1px solid var(--border);
+     border-radius:var(--radius);background:var(--surface-alt);color:var(--text-2)">
+  <strong style="color:var(--navy)">EXPERIMENTAL</strong> — the investments module is
+  still maturing; expect rough edges.
+</div>
+
+<div class="card"><div class="card-body">
+  <h2>The one-minute version</h2>
+  <p>This tool answers one question: <strong>how are my investments actually
+  doing, given when each dollar went in and came out.</strong> It tracks every
+  account you hold money in — retirement, savings/brokerage, and alternatives —
+  and computes real, timing-adjusted returns (XIRR), not just "total gain."</p>
+  <p>It's built on two ideas: <strong>lots</strong> (each chunk of money you
+  put in) and <strong>events</strong> (everything that ever happened to it).
+  You mostly won't think about either — you just record what happened, and the
+  math follows.</p>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h2>Lots &amp; events — the two building blocks</h2>
+  <p><strong>A lot</strong> is one of "your $10Ks." Every dollar of net-new
+  money you invest becomes a lot with a sticky origin date and origin amount.
+  Its value grows or shrinks over time. The important trick: when money moves
+  between investment accounts, <strong>the lot moves with its origin</strong> —
+  so $7K you put in a CD in 2016 is still "the 2016 $7K" after it rolls into
+  your brokerage, and its return clock keeps running from 2016.</p>
+  <p><strong>An event</strong> is a dated record of something that happened:
+  a contribution, a withdrawal, a move between accounts, a value snapshot, a
+  dividend/interest/fee, or an account closing. Events are append-only — the
+  ledger is the full history, and the numbers on every other page are derived
+  from it.</p>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h2>Money in, money out, and moves — the three kinds of transfer</h2>
+  <p>This is the part that ties into the rest of the app. Every dollar
+  movement is exactly one of three things:</p>
+  <table>
+    <thead><tr><th>What happened</th><th>Event type</th><th>Counts as new money?</th></tr></thead>
+    <tbody>
+      <tr><td>Checking → an investment account</td><td><span class="pill">contribution</span></td><td>Yes — net-new money in</td></tr>
+      <tr><td>An investment account → checking</td><td><span class="pill">withdrawal</span></td><td>Counts as money out</td></tr>
+      <tr><td>Investment → investment (CD→brokerage, IRA rollover)</td><td><span class="pill">move</span></td><td><strong>No</strong> — not an expense, not new money; it just relocates</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:12px">Because a <em>move</em> is neither new money nor
+  an expense, it never distorts your returns — portfolio XIRR only counts the
+  dollars that truly entered or left the investment universe.</p>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h2>How it connects to the rest of the app</h2>
+  <p>Your 2026-and-onward money movements already flow in from your Chase bank
+  imports. When you categorize a checking transfer as going into an investment
+  account, the <strong>Sync</strong> button on the Transactions page pulls it
+  into this tracker as a contribution (or a withdrawal if it came back). That's
+  why, going forward, you barely have to touch this tool — new activity arrives
+  from the bank feed.</p>
+  <p>The one thing Sync deliberately does <strong>not</strong> pull is a move
+  <em>between</em> two investment accounts (e.g. an IRA rollover), because
+  that's not a checking transaction — you record those as a <code>move</code>
+  here.</p>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h2>Every event type, in plain terms</h2>
+  <table>
+    <thead><tr><th>Type</th><th>What it does</th><th>Fields you provide</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill">contribution</span></td><td>New money into an account — creates a new lot</td><td>date, account, amount</td></tr>
+      <tr><td><span class="pill">withdrawal</span></td><td>Money out to checking — consumes lots oldest-first</td><td>date, account, amount</td></tr>
+      <tr><td><span class="pill">move</span></td><td>Money between two investment accounts — carries the origin. <strong>One row does both sides.</strong></td><td>date, account (from), amount, to_account</td></tr>
+      <tr><td><span class="pill">snapshot</span></td><td>"This account was worth $X on this date." Recalibrates value to reality; powers the chart + time-weighted return</td><td>date, account, value</td></tr>
+      <tr><td><span class="pill">dividend / interest</span></td><td>Income earned inside the account — adds value as gain</td><td>date, account, amount</td></tr>
+      <tr><td><span class="pill">fee</span></td><td>A fee charged — reduces value (enter a positive number)</td><td>date, account, amount</td></tr>
+      <tr><td><span class="pill">gain_loss</span></td><td>A manual value change — the only signed field (use a minus sign for a loss)</td><td>date, account, amount</td></tr>
+      <tr><td><span class="pill">close</span></td><td>Close an account. With a <code>to_account</code> it moves the money there; blank means cashed out</td><td>date, account, (to_account)</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:12px"><strong>Snapshots are what keep it honest.</strong>
+  Every time you enter a statement value, the tool spreads the difference vs
+  its own number across your open lots. More snapshots = a better value chart,
+  better per-lot accuracy, and a real time-weighted return. Year-end at a
+  minimum; monthly if you can.</p>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h2>Worked example — HYSA → CD → back to HYSA</h2>
+  <p>Say you move $10,000 out of your HYSA into a 12-month CD, it earns $400,
+  and it matures back into the HYSA. Here's exactly what you'd record — each
+  <code>move</code> is a <strong>single row that handles both the outflow and
+  the inflow</strong>:</p>
+  <table>
+    <thead><tr><th>date</th><th>account</th><th>type</th><th>amount</th><th>to_account</th><th>value</th><th>what it does</th></tr></thead>
+    <tbody>
+      <tr><td>2024-01-15</td><td>HYSA 0001</td><td>move</td><td>10000</td><td>CD</td><td></td><td>Takes $10K out of HYSA, puts it in the CD (both sides, one row)</td></tr>
+      <tr><td>2025-01-15</td><td>CD</td><td>interest</td><td>400</td><td></td><td></td><td>CD earned $400 — now worth $10,400</td></tr>
+      <tr><td>2025-01-16</td><td>CD</td><td>move</td><td>10400</td><td>HYSA 0001</td><td></td><td>Rolls the full $10,400 back into the HYSA</td></tr>
+      <tr><td>2025-01-17</td><td>CD</td><td>close</td><td></td><td></td><td></td><td>Closes the CD account (only if you won't reuse it)</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:12px"><strong>Key points:</strong> you do
+  <em>not</em> write separate "out of HYSA" and "into CD" rows — the one
+  <code>move</code> row does both. And you must record the $400 of interest
+  <em>before</em> moving $10,400 back, otherwise the tool only knows about
+  $10,000 in the CD and the move will be rejected (you can't move out more than
+  the account holds). If you'd rather, replace the interest row with a
+  <code>snapshot</code> of <code>10400</code> on maturity day — same effect, and
+  snapshots are self-correcting.</p>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h2>Employer 401(k) contributions</h2>
+  <p>Your employer 401(k) contributions come in through payroll, not
+  as a checking transaction you initiate — so you should not have to enter them
+  twice. Wherever they already land, the tool's job is to pick them up
+  automatically; you'll never key an employer contribution by hand. (This
+  auto-arrival + a clear "your money vs. employer money" split is the next
+  thing being wired up — see the note on the Overview once it's live.)</p>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h2>The two return numbers — XIRR &amp; TWR</h2>
+
+  <p style="margin-top:4px"><strong>XIRR — "what did <em>my money</em> actually
+  earn?"</strong> Think of it as the interest rate on a savings account, but one
+  that correctly handles the fact that you deposited money at different times.
+  It's the single annual rate that, applied to each dollar for exactly as long
+  as that dollar was invested, turns all your deposits into what you have today.
+  It cares about <strong>both how much and when</strong>: a dollar you put in
+  years ago had more time to compound, and a dollar you happened to add right
+  before a run-up gets credit for that good timing. It's <em>your</em> real,
+  timing-aware annual return.</p>
+
+  <div class="callout" style="border-left:4px solid var(--navy);background:#eef3f8;padding:11px 14px;border-radius:0 8px 8px 0;margin:12px 0">
+    Example: $10,000 in 2020 + $10,000 in 2022, now worth $30,000. XIRR asks
+    "what yearly rate grows the first $10K (invested ~6 yrs) plus the second
+    $10K (~4 yrs) into $30K?" → about <strong>8% a year</strong>. Note it's
+    <em>not</em> the naive "$10K gain on $20K = 50%," because the 2022 money
+    wasn't invested the whole time.
+  </div>
+
+  <p><strong>TWR — "how did the <em>investments themselves</em> do, ignoring my
+  deposit timing?"</strong> This is the number you'd use to judge a fund manager
+  — they don't control when you add money, only how the investments perform. The
+  trick to stripping out your timing: TWR <strong>chops the timeline into
+  segments at each deposit/withdrawal, measures the percentage return of each
+  segment on its own, then multiplies those percentages together.</strong> A
+  deposit lands at a segment <em>boundary</em> — it adds principal but doesn't
+  change the percentage the investments moved <em>within</em> a segment — so the
+  size and timing of your deposits fall out of the math. (This is why TWR needs
+  your snapshots: it has to know the account's value at each segment boundary.)</p>
+
+  <div class="callout" style="border-left:4px solid #6a3596;background:#f7f1fc;padding:11px 14px;border-radius:0 8px 8px 0;margin:12px 0">
+    Same example, and note TWR is <em>not</em> the flat 50%. Say the first $10K
+    had grown to $12K by the 2022 deposit: segment 1 (2020→2022) = +20%; you add
+    $10K → $22K; segment 2 (2022→now) $22K→$30K = +36%. TWR = 1.20 × 1.36 − 1 =
+    <strong>+63% total</strong> — the actual investment performance in each
+    stretch, chained, unaffected by how big your 2022 deposit was.
+  </div>
+
+  <p><strong>Modified Dietz — the accurate flavor of TWR used here.</strong> A plain
+  TWR needs a snapshot at every single cash flow. Since real life has flows
+  between your snapshots, the tool uses Modified Dietz for each period: instead of
+  dividing the period's gain by the starting value, it divides by the
+  <em>average</em> capital that was actually at work — each flow is weighted by
+  the fraction of the period it was invested. That stops a big mid-period
+  transfer (like a rollover) from wildly distorting the number, and is the
+  industry-standard way to approximate TWR between snapshots.</p>
+
+  <p><strong>Why they differ, and what it tells you.</strong> When XIRR is
+  <em>higher</em> than TWR, your timing <em>helped</em> — you tended to add money
+  right before gains. When XIRR is <em>lower</em>, your timing hurt. Same
+  investments, two lenses: TWR grades the investments; XIRR grades your actual
+  experienced return including when you deposited. The more snapshots you add,
+  the sharper both get.</p>
+</div></div>
+
+<p class="text-xs text-3" style="margin-top:8px">
+  Deeper reference lives in the handbook
+  (<code>docs/handbook.html</code>, section 12 — Investments).
+</p>
+
+</div>
+{% endblock %}

@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Personal Financial Tracker{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block header_actions %}
+<select class="form-control" style="width:auto"
+        onchange="window.location='/?year='+this.value">
+  {% for y in available_years %}
+    <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+  {% endfor %}
+</select>
+<a href="/tools/import" class="btn btn-primary btn-sm">↥ Import</a>
+{% endblock %}
+
+{% block content %}
+
+{% if pending > 0 %}
+<div class="alert info" style="margin-bottom:20px">
+  <span>◎</span>
+  <span>You have <strong>{{ pending }}</strong> transaction{{ 's' if pending != 1 }} waiting for review.</span>
+  <a href="/review" class="btn btn-sm btn-ghost" style="margin-left:auto">Review now</a>
+</div>
+{% endif %}
+
+<!-- Stat cards -->
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="label">YTD Income (Gross)</div>
+    <div class="value green">${{ "{:,.0f}".format(ytd_income) }}</div>
+    <div class="sub">${{ "{:,.0f}".format(is_tax_paid) }} paid in taxes</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">YTD Expenses</div>
+    <div class="value red">${{ "{:,.0f}".format(ytd_expense) }}</div>
+    <div class="sub">{{ year }} approved</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Investment Portfolio Value</div>
+    <div class="value" style="color:var(--navy)">${{ "{:,.0f}".format(inv_value) }}</div>
+    <div class="sub">
+      lifetime gain
+      <strong style="color:{{ 'var(--green)' if inv_gain >= 0 else 'var(--red)' }}">{{ '+' if inv_gain >= 0 else '−' }}${{ "{:,.0f}".format(inv_gain|abs) }}</strong>{% if inv_xirr is not none %} ({{ (inv_xirr*100)|round(2) }}% XIRR){% endif %}
+      &nbsp;·&nbsp;
+      <a href="/investments/overview" style="color:var(--navy)">View →</a>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Pending Review</div>
+    <div class="value {% if pending > 0 %}red{% endif %}">{{ pending }}</div>
+    <div class="sub">
+      <a href="/review" style="color:var(--navy)">Go to review →</a>
+    </div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+  {# ── Left column: Top Expense Categories + Recent Transactions stacked ── #}
+  <div style="display:flex;flex-direction:column;gap:20px">
+
+  <!-- Top categories -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Top Expense Categories</h2>
+      <a href="/expenses/overview" class="text-sm text-2">View all →</a>
+    </div>
+    <div class="card-body" style="padding:0">
+      {% if top_cats %}
+        {% set max_val = top_cats[0]['total'] %}
+        <table>
+          <tbody>
+          {% for c in top_cats %}
+          <tr>
+            <td style="width:36%">{{ c['l1_category'] or '—' }}</td>
+            <td style="width:46%">
+              <div style="background:var(--navy-light);border-radius:3px;height:6px;overflow:hidden">
+                <div style="background:var(--navy);height:100%;width:{{ [(c['total']/max_val*100)|int, 100]|min }}%"></div>
+              </div>
+            </td>
+            <td class="right">${{ "{:,.0f}".format(c['total']) }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No expense data yet.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Recent transactions -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Recent Transactions</h2>
+      <a href="/expenses/transactions" class="text-sm text-2">View all →</a>
+    </div>
+    <div class="card-body" style="padding:0">
+      {% if recent %}
+        <table>
+          <tbody>
+          {% for t in recent %}
+          <tr style="cursor:pointer" onclick="window.location='/transactions/{{ t.id }}'">
+            <td class="mono dim" style="width:88px;font-size:11px">
+              {{ t.payment_date or t.trx_date }}
+            </td>
+            <td>
+              <span style="color:var(--navy);font-weight:500">
+                {{ t.vendor or t.raw_description[:28] }}
+              </span>
+            </td>
+            <td class="dim text-sm" style="white-space:nowrap">
+              {% if t.l1_category %}{{ t.l1_category }}{% else %}<span class="text-3">—</span>{% endif %}
+            </td>
+            <td class="right">
+              <strong style="color:{% if t.trx_type == 'income' %}var(--green){% else %}var(--red){% endif %}">
+                {{ t.amount | amt }}
+              </strong>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No approved transactions yet.<br>
+          <a href="/import" style="color:var(--navy)">Import a CSV →</a>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+
+  </div>{# /left column #}
+
+  {# ── Right column: Income Statement (taller — fills its own column) ── #}
+  <div>
+
+  {# ── Income statement snapshot (where my money went, {{ year }}) ─── #}
+  <div class="card">
+    <div class="card-header">
+      <h2>Personal P&L — {{ year }}</h2>
+      <span class="text-sm text-3">where my money went</span>
+    </div>
+    <div class="card-body">
+      <table style="width:100%;font-size:14px">
+        <tbody>
+          {# Income row #}
+          <tr>
+            <td style="padding:8px 0;font-weight:600;color:var(--navy)">Income (gross)</td>
+            <td style="padding:8px 0;text-align:right;font-family:var(--font-mono);
+                       font-weight:600;color:var(--green)">
+              ${{ "{:,.0f}".format(is_income) }}
+            </td>
+          </tr>
+
+          {# Taxes paid (with breakdown) #}
+          <tr>
+            <td style="padding:8px 0;color:var(--text-2);border-top:1px solid var(--border)">
+              − Taxes paid
+            </td>
+            <td style="padding:8px 0;text-align:right;font-family:var(--font-mono);
+                       color:var(--red);border-top:1px solid var(--border)">
+              ${{ "{:,.0f}".format(is_tax_paid) }}
+            </td>
+          </tr>
+          {% if is_tax_fed | abs >= 0.005 %}
+          <tr>
+            <td style="padding:3px 0 3px 18px;color:var(--text-3);font-size:12.5px">↳ Federal Taxes</td>
+            <td style="padding:3px 0;text-align:right;font-family:var(--font-mono);
+                       font-size:12.5px;color:var(--text-3)">
+              ${{ "{:,.0f}".format(is_tax_fed) }}
+            </td>
+          </tr>
+          {% endif %}
+          {% if is_tax_state | abs >= 0.005 %}
+          <tr>
+            <td style="padding:3px 0 3px 18px;color:var(--text-3);font-size:12.5px">↳ State Taxes</td>
+            <td style="padding:3px 0;text-align:right;font-family:var(--font-mono);
+                       font-size:12.5px;color:var(--text-3)">
+              ${{ "{:,.0f}".format(is_tax_state) }}
+            </td>
+          </tr>
+          {% endif %}
+
+          {# Investments (out of pocket) with breakdown #}
+          <tr>
+            <td style="padding:8px 0;color:var(--text-2);border-top:1px solid var(--border)">
+              − Investments made
+              <span class="text-xs text-3" style="margin-left:6px">out of pocket</span>
+            </td>
+            <td style="padding:8px 0;text-align:right;font-family:var(--font-mono);
+                       color:var(--red);border-top:1px solid var(--border)">
+              ${{ "{:,.0f}".format(is_invest_total) }}
+            </td>
+          </tr>
+          {% for l1, v in is_invest_breakdown %}
+          <tr>
+            <td style="padding:3px 0 3px 18px;color:var(--text-3);font-size:12.5px">↳ {{ l1 }}</td>
+            <td style="padding:3px 0;text-align:right;font-family:var(--font-mono);
+                       font-size:12.5px;color:var(--text-3)">
+              ${{ "{:,.0f}".format(v) }}
+            </td>
+          </tr>
+          {% endfor %}
+
+          {# Expenses #}
+          <tr>
+            <td style="padding:8px 0;color:var(--text-2);border-top:1px solid var(--border)">
+              − Expenses
+            </td>
+            <td style="padding:8px 0;text-align:right;font-family:var(--font-mono);
+                       color:var(--red);border-top:1px solid var(--border)">
+              ${{ "{:,.0f}".format(is_expense) }}
+            </td>
+          </tr>
+
+          {# Remaining funds #}
+          <tr>
+            <td style="padding:12px 0;font-weight:700;color:var(--navy);
+                       border-top:2px solid var(--border-mid)">
+              Remaining funds
+            </td>
+            <td style="padding:12px 0;text-align:right;font-family:var(--font-mono);
+                       font-weight:700;
+                       color:{% if is_remaining >= 0 %}var(--green){% else %}var(--red){% endif %};
+                       border-top:2px solid var(--border-mid)">
+              {% if is_remaining < 0 %}-{% endif %}${{ "{:,.0f}".format(is_remaining | abs) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="text-xs text-3" style="margin-top:10px;line-height:1.5">
+        Inter-investment transfers (e.g. Trad IRA → Roth IRA) excluded from Investments —
+        only counts new capital deployed from non-invest accounts. Employer 401K matches
+        also excluded (free money, not out of pocket).
+      </div>
+    </div>
+  </div>
+
+  </div>{# /right column #}
+
+</div>
+
+{% endblock %}

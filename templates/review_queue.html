@@ -1,0 +1,681 @@
+{% extends "base.html" %}
+{% block title %}Review Queue — Personal Financial Tracker{% endblock %}
+{% block page_title %}Review Queue{% endblock %}
+
+{% block header_actions %}
+  {% if show_discarded %}
+    {# Discarded-only view: header shows count + Delete-all + back link. #}
+    <span class="text-sm text-2">{{ rows | length }} discarded</span>
+    {% if rows %}
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+              onclick="deleteAllDiscarded()" title="Permanently remove all discarded rows">
+        🗑 Delete all
+      </button>
+    {% endif %}
+    <a href="/review" class="btn btn-ghost btn-sm">← Back to review</a>
+  {% else %}
+    {% if rows %}
+      {% set pending_count = rows | selectattr('status','eq','pending') | list | length %}
+      {% set dupe_count    = rows | selectattr('status','eq','duplicate') | list | length %}
+      {% set skip_count    = rows | selectattr('status','eq','skipped') | list | length %}
+      <span class="text-sm text-2" id="pending-label">
+        {{ pending_count }} pending
+        {% if dupe_count > 0 %}&nbsp;·&nbsp;
+          <span style="color:#991B1B">{{ dupe_count }} duplicate{{ 's' if dupe_count != 1 }}</span>{% endif %}
+        {% if skip_count > 0 %}&nbsp;·&nbsp;
+          <span style="color:#92400E">{{ skip_count }} skipped</span>{% endif %}
+      </span>
+    {% endif %}
+    <a href="/review?show_discarded=1" class="btn btn-ghost btn-sm" style="opacity:0.7">
+      Show discarded
+    </a>
+    <a href="/import" class="btn btn-primary btn-sm">↥ Import</a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if not rows %}
+  <div class="empty-state" style="padding:80px 24px">
+    <div class="icon">✓</div>
+    <div style="font-size:15px;font-weight:600;color:var(--text-2);margin-bottom:6px">
+      You're all caught up
+    </div>
+    <div>No transactions waiting for review.</div>
+    <a href="/import" class="btn btn-primary" style="margin-top:20px">Import a CSV</a>
+  </div>
+{% else %}
+
+<script>
+const CAT_MAP = {{ cat_map | tojson }};
+</script>
+
+<style>
+/* ── Review queue table ─────────────────────────────────── */
+.review-table td,
+.review-table th {
+  vertical-align: middle;
+  text-align: center;
+}
+.review-table td.left-col,
+.review-table th.left-col {
+  text-align: left;
+}
+.cell-input {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 3px 5px;
+  border-radius: 4px;
+  width: 100%;
+  font-size: inherit;
+  color: inherit;
+  transition: border-color .15s, background .15s;
+}
+.cell-input:hover { border-color: var(--border); background: var(--surface); }
+.cell-input:focus { border-color: var(--navy); background: var(--surface); outline: none; }
+.cell-select {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 3px 4px;
+  border-radius: 4px;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+  transition: border-color .15s;
+}
+.cell-select:hover { border-color: var(--border); background: var(--surface); }
+.cell-select:focus { border-color: var(--navy); background: var(--surface); outline: none; }
+/* Date cell (editable) — same look as TRX table */
+.rq-date-cell {
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-family: var(--font);
+  color: var(--text-2);
+  white-space: nowrap;
+  display: inline-block;
+  min-width: 72px;
+  transition: background .12s;
+}
+.rq-date-cell:hover { background: var(--navy-light); }
+/* Amount cell */
+.rq-amount-cell {
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: background .12s;
+}
+.rq-amount-cell:hover { background: var(--navy-light); }
+/* Cat cell — same as TRX table */
+.rq-cat-cell {
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  display: inline-block;
+  min-width: 50px;
+  transition: background .12s;
+}
+.rq-cat-cell:hover { background: var(--navy-light); }
+.review-done { opacity: 0; transition: opacity .3s; }
+/* Flagged rows: shade the row background (not greyed text) so they stand out
+   but still read as fully present. Dupe = red tint, skip = amber tint. */
+.review-dupe td { background: #FDECEC; }
+.review-dupe:hover td { background: #FBDDDD; }
+.review-skip td { background: #FEF4E0; }
+.review-skip:hover td { background: #FCEBCB; }
+#rq-popup {
+  display: none;
+  position: fixed;
+  z-index: 300;
+  background: var(--surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  min-width: 240px;
+}
+</style>
+
+<div class="table-wrap">
+  <table class="review-table" style="width:100%">
+    <thead>
+      <tr>
+        <th class="center" style="width:100px">TRX Date</th>
+        <th class="center" style="width:100px">Post Date</th>
+        <th class="center" style="width:100px">Stmt Date</th>
+        <th style="width:120px">Account</th>
+        <th class="left-col" style="width:160px">Vendor</th>
+        <th class="center" style="width:96px">Amount</th>
+        <th class="center" style="width:105px">Type</th>
+        <th style="width:240px">Category</th>
+        <th style="width:90px"></th>
+      </tr>
+    </thead>
+    <tbody id="review-tbody">
+
+    {% for r in rows %}
+    {% set is_dupe       = r.status == 'duplicate' %}
+    {% set is_skip       = r.status == 'skipped' %}
+    {% set is_discarded  = r.status == 'discarded' %}
+    {# Locked = read-only display (dupes, skips, and the discarded view). #}
+    {% set is_locked = is_dupe or is_skip or is_discarded %}
+    <tr id="rrow-{{ r.id }}"
+        class="{% if is_dupe %}review-dupe{% elif is_skip %}review-skip{% endif %}"
+        data-id="{{ r.id }}"
+        data-dupe="{{ 'true' if is_dupe else 'false' }}"
+        data-skip="{{ 'true' if is_skip else 'false' }}">
+
+      <!-- TRX Date (editable popup) -->
+      <td>
+        {% if not is_locked %}
+        <span class="rq-date-cell" id="d-date-{{ r.id }}"
+              data-id="{{ r.id }}" data-field="trx_date"
+              data-value="{{ r.trx_date }}">{{ r.trx_date }}</span>
+        {% else %}
+          <span class="mono" style="font-size:11px">{{ r.trx_date }}</span>
+        {% endif %}
+      </td>
+
+      <!-- Post Date (editable popup) -->
+      <td>
+        {% if not is_locked %}
+        <span class="rq-date-cell" id="d-post-{{ r.id }}"
+              data-id="{{ r.id }}" data-field="post_date"
+              data-value="{{ r.post_date or '' }}"
+              data-acct="{{ r.account_id }}">
+          {{ r.post_date or '—' }}
+        </span>
+        {% else %}
+          <span class="mono" style="font-size:11px">{{ r.post_date or '—' }}</span>
+        {% endif %}
+      </td>
+
+      <!-- Stmt Date (editable popup, auto-calculated) -->
+      <td>
+        {% if not is_locked %}
+        <span class="rq-date-cell" id="d-stmt-{{ r.id }}"
+              data-id="{{ r.id }}" data-field="statement_date"
+              data-value="{{ r.statement_date or '' }}">
+          {{ r.statement_date or '—' }}
+        </span>
+        {% else %}
+          <span class="mono" style="font-size:11px">{{ r.statement_date or '—' }}</span>
+        {% endif %}
+      </td>
+
+      <!-- Account -->
+      <td>
+        <select class="cell-select" id="d-acct-{{ r.id }}"
+                onchange="onAcctChange({{ r.id }})"
+                {% if is_locked %}disabled{% endif %}>
+          {% for a in accounts %}
+            <option value="{{ a.id }}"
+              {% if a.id == r.account_id %}selected{% endif %}>
+              {{ a.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </td>
+
+      <!-- Vendor -->
+      <td class="left-col">
+        {% if is_discarded %}
+          {# Discarded view: show WHY it landed here (the flag at discard time). #}
+          <span class="text-sm">{{ r.vendor or r.raw_description[:44] }}</span>
+          {% if r.flag_reason %}
+            {% set _dup = 'duplicate' in r.flag_reason|lower %}
+            <span class="pill" style="font-size:10px;font-weight:600;margin-left:4px;
+                  background:{{ '#FBD5D5' if _dup else '#FDE9C8' }};color:{{ '#991B1B' if _dup else '#92400E' }}"
+                  title="Discarded — was flagged {{ r.flag_reason }}">{{ r.flag_reason }}</span>
+          {% else %}
+            <span class="pill" style="background:var(--border);color:var(--text-2);font-size:10px;margin-left:4px"
+                  title="Discarded manually (not auto-flagged)">manual</span>
+          {% endif %}
+          {% if r.dup_of_trx_id %}
+            <div style="font-size:10px;color:var(--text-3);margin-top:2px;line-height:1.3">
+              ↳ matches <b>{{ r.dup_vendor or '—' }}</b> · {{ r.dup_date }} ·
+              ${{ '%.2f'|format(r.dup_amount|abs) if r.dup_amount is not none else '?' }}
+              <a href="/transactions/{{ r.dup_of_trx_id }}" target="_blank"
+                 style="margin-left:2px" title="Open the matching transaction">open ↗</a>
+            </div>
+          {% endif %}
+        {% elif is_skip %}
+          <span class="text-sm">{{ r.vendor or r.raw_description[:44] }}</span>
+          <span class="pill" style="background:#FDE9C8;color:#92400E;font-size:10px;font-weight:600;margin-left:4px"
+                title="Skipped — {{ r.flag_reason or 'card payment' }}">{{ r.flag_reason or 'CC payment' }}</span>
+        {% elif is_dupe %}
+          <span class="text-sm">{{ r.vendor or r.raw_description[:44] }}</span>
+          <span class="pill" style="background:#FBD5D5;color:#991B1B;font-size:10px;font-weight:600;margin-left:4px"
+                title="{{ r.flag_reason or 'Duplicate' }}">{{ r.flag_reason or 'Duplicate' }}</span>
+          {% if r.dup_of_trx_id %}
+            <div style="font-size:10px;color:var(--text-3);margin-top:2px;line-height:1.3">
+              ↳ matches <b>{{ r.dup_vendor or '—' }}</b> · {{ r.dup_date }} ·
+              ${{ '%.2f'|format(r.dup_amount|abs) if r.dup_amount is not none else '?' }}
+              <a href="/transactions/{{ r.dup_of_trx_id }}" target="_blank"
+                 style="margin-left:2px" title="Open the matching transaction">open ↗</a>
+            </div>
+          {% endif %}
+        {% else %}
+          <input class="cell-input" type="text" id="d-vendor-{{ r.id }}"
+                 style="text-align:left"
+                 value="{{ r.vendor or r.raw_description[:44] }}"
+                 placeholder="{{ r.raw_description[:44] }}">
+          {% if r.vendor and r.vendor != r.raw_description %}
+            <div style="font-size:10px;color:var(--text-3);padding:1px 4px"
+                 title="{{ r.raw_description }}">
+              {{ r.raw_description[:20] }}{% if r.raw_description|length > 20 %}…{% endif %}
+            </div>
+          {% endif %}
+        {% endif %}
+      </td>
+
+      <!-- Amount (editable popup) -->
+      <td>
+        {% if not is_locked %}
+        <span class="rq-amount-cell" id="d-amount-{{ r.id }}"
+              data-value="{{ r.amount }}"
+              style="color:{% if r.amount < 0 %}var(--green){% endif %}">
+          {{ r.amount | amt }}
+        </span>
+        {% else %}
+          <span style="font-weight:600;font-size:13px;font-variant-numeric:tabular-nums">{{ r.amount | amt }}</span>
+        {% endif %}
+      </td>
+
+      <!-- Type — Expense / Income / Transfer / CC Payment -->
+      <td>
+        <select class="cell-select" id="d-type-{{ r.id }}"
+                onchange="onTypeChange({{ r.id }})"
+                {% if is_locked %}disabled{% endif %}>
+          {# FOUR visible options, two of them forked over the same stored
+             type — 'Transfer' (investment moves etc.) and 'CC Payment'
+             (card payments) are both trx_type='transfer' under the hood
+             (P&L-neutral), split by L1 = 'Credit Card Payment'. Picking
+             CC Payment auto-categorizes (L2 = the card, defaulted when
+             there's exactly one); picking Transfer clears the category so
+             the investment tree gets picked fresh. #}
+          {% set is_ccp = r.l1_category == 'Credit Card Payment' %}
+          <option value="expense"  {% if r.trx_type == 'expense'  %}selected{% endif %}>Expense</option>
+          <option value="income"   {% if r.trx_type == 'income'   %}selected{% endif %}>Income</option>
+          <option value="transfer" {% if r.trx_type == 'transfer' and not is_ccp %}selected{% endif %}>Transfer</option>
+          <option value="cc_payment" {% if r.trx_type == 'transfer' and is_ccp %}selected{% endif %}>CC Payment</option>
+        </select>
+      </td>
+
+      <!-- Category (L1 / L2 in one cell — popup on click) -->
+      <td>
+        {% if not is_locked %}
+        <span class="rq-cat-cell" id="d-cat-{{ r.id }}"
+              data-l1="{{ r.l1_category or '' }}"
+              data-l2="{{ r.l2_category or '' }}"
+              onclick="openCatPopup(event, {{ r.id }})">
+          {% if r.l1_category %}
+            {{ r.l1_category }}{% if r.l2_category %} / {{ r.l2_category }}{% endif %}
+          {% else %}
+            <span style="color:var(--text-3)">—</span>
+          {% endif %}
+        </span>
+        {% else %}
+          <span class="text-sm">
+            {% if r.l1_category %}{{ r.l1_category }}{% if r.l2_category %} / {{ r.l2_category }}{% endif %}{% else %}—{% endif %}
+          </span>
+        {% endif %}
+      </td>
+
+      <!-- Actions: discarded → Restore + Delete; otherwise approve/discard -->
+      <td style="white-space:nowrap">
+        {% if is_discarded %}
+          <button class="btn btn-ghost btn-sm" style="font-size:11px"
+                  onclick="doRestore({{ r.id }})"
+                  title="Move back to pending">↶ Restore</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)"
+                  onclick="doHardDelete({{ r.id }})"
+                  title="Permanently delete this row">🗑</button>
+        {% elif is_locked %}
+          {# Dupes + skipped card payments share the same actions:
+             ✓ restores to pending, ✕ moves to discarded. #}
+          <button class="btn btn-success btn-sm" onclick="doRestore({{ r.id }})"
+                  title="Restore — move back to pending for review">✓</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red);padding:2px 7px"
+                  onclick="doDiscard({{ r.id }})" title="Discard — move to discarded">✕</button>
+        {% else %}
+          <button class="btn btn-success btn-sm" onclick="doApprove({{ r.id }})"
+                  title="Approve — move to transactions">✓</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--red);padding:2px 7px"
+                  onclick="doDiscard({{ r.id }})" title="Discard">✕</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+
+    </tbody>
+  </table>
+</div>
+
+<!-- Shared popup (dates, amount, category) -->
+<div id="rq-popup">
+  <div id="rq-popup-content"></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-primary btn-sm" onclick="rqSavePopup()">Save</button>
+    <button class="btn btn-ghost btn-sm"   onclick="rqClosePopup()">Cancel</button>
+  </div>
+</div>
+<div id="rq-overlay" style="display:none;position:fixed;inset:0;z-index:299"
+     onclick="rqClosePopup()"></div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Popup system ──────────────────────────────────────────────────────────────
+let _rqSaveFn = null;
+let _rqRowId  = null;
+
+const DATE_LABELS_RQ = {
+  trx_date: 'Transaction Date',
+  post_date: 'Posted Date',
+  statement_date: 'Statement Date',
+};
+
+function showRqPopup(e, html, onSave) {
+  e.stopPropagation();
+  document.getElementById('rq-popup-content').innerHTML = html;
+  const popup = document.getElementById('rq-popup');
+  popup.style.display = 'block';
+  document.getElementById('rq-overlay').style.display = 'block';
+  const x = Math.min(e.clientX, window.innerWidth  - 280);
+  const y = Math.min(e.clientY + 8, window.innerHeight - 220);
+  popup.style.left = x + 'px';
+  popup.style.top  = y + 'px';
+  _rqSaveFn = onSave;
+  setTimeout(() => {
+    const inp = document.getElementById('rq-ep-input') || document.getElementById('rq-ep-l1');
+    if (inp) { inp.focus(); if (inp.type !== 'date' && inp.select) inp.select(); }
+  }, 10);
+}
+
+function rqSavePopup() {
+  if (_rqSaveFn) _rqSaveFn();
+  rqClosePopup();
+}
+
+function rqClosePopup() {
+  document.getElementById('rq-popup').style.display = 'none';
+  document.getElementById('rq-overlay').style.display = 'none';
+  _rqSaveFn = null;
+  _rqRowId  = null;
+}
+
+// ── Date cell clicks ──────────────────────────────────────────────────────────
+document.querySelectorAll('.rq-date-cell').forEach(el => {
+  el.addEventListener('click', e => {
+    const rowId = el.dataset.id;
+    const field = el.dataset.field;
+    const cur   = el.dataset.value || '';
+    showRqPopup(e, `
+      <label class="form-label" style="font-size:12px">${DATE_LABELS_RQ[field] || field}</label>
+      <input class="form-control" id="rq-ep-input" type="date" value="${cur}">
+    `, () => {
+      const val = document.getElementById('rq-ep-input').value || null;
+      el.textContent = val || '—';
+      el.dataset.value = val || '';
+
+      // If post_date changed, auto-refresh stmt date
+      if (field === 'post_date' && val) {
+        const acctId = document.getElementById(`d-acct-${rowId}`)?.value;
+        if (acctId) refreshStmtDate(rowId, val, acctId);
+      }
+    });
+  });
+});
+
+// ── Amount cell clicks ────────────────────────────────────────────────────────
+document.querySelectorAll('.rq-amount-cell').forEach(el => {
+  el.addEventListener('click', e => {
+    const cur = el.dataset.value || '';
+    showRqPopup(e, `
+      <label class="form-label" style="font-size:12px">Amount</label>
+      <div style="position:relative">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-2)">$</span>
+        <input class="form-control" id="rq-ep-input" type="number" step="0.01"
+               value="${cur}" style="padding-left:24px;text-align:right">
+      </div>
+    `, () => {
+      const val = parseFloat(document.getElementById('rq-ep-input').value) || 0;
+      const sign = val < 0 ? '-' : '';
+      el.textContent = sign + '$' + Math.abs(val).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      el.style.color = val < 0 ? 'var(--green)' : '';
+      el.dataset.value = val;
+    });
+  });
+});
+
+// ── Account change → refresh stmt date ───────────────────────────────────────
+function onAcctChange(rowId) {
+  const postEl  = document.getElementById(`d-post-${rowId}`);
+  const postVal = postEl?.dataset?.value;
+  const acctId  = document.getElementById(`d-acct-${rowId}`)?.value;
+  if (postVal && postVal !== '' && acctId) refreshStmtDate(rowId, postVal, acctId);
+}
+
+function refreshStmtDate(rowId, postVal, acctId) {
+  fetch(`/api/calc-stmt-date?post_date=${postVal}&account_id=${acctId}`)
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById(`d-stmt-${rowId}`);
+      if (el) {
+        el.textContent = d.statement_date || '—';
+        el.dataset.value = d.statement_date || '';
+      }
+    })
+    .catch(() => {});
+}
+
+// ── Type change → clear category ─────────────────────────────────────────────
+// CC Payment auto-categorizes (L1 'Credit Card Payment'; L2 defaults to the
+// card when exactly one credit-card account exists — flip it in the category
+// popup otherwise); other types clear so the right tree gets picked fresh.
+const DEFAULT_CC_L2 = {{ default_cc_l2 | tojson }};
+function onTypeChange(rowId) {
+  const type = document.getElementById(`d-type-${rowId}`)?.value;
+  if (type === 'cc_payment') updateCatDisplay(rowId, 'Credit Card Payment', DEFAULT_CC_L2);
+  else updateCatDisplay(rowId, '', '');
+}
+
+function updateCatDisplay(rowId, l1, l2) {
+  const span = document.getElementById(`d-cat-${rowId}`);
+  if (!span) return;
+  span.dataset.l1 = l1;
+  span.dataset.l2 = l2;
+  span.innerHTML = l1
+    ? `${l1}${l2 ? ' / ' + l2 : ''}`
+    : '<span style="color:var(--text-3)">—</span>';
+}
+
+// ── Category popup ─────────────────────────────────────────────────────────
+// Category trees are keyed by trx_type ('expense' / 'income' / 'transfer').
+// 'cc_payment' is DISPLAY-forked over transfer — same stored type, same
+// category tree; the L1 filter below splits the lists.
+function rqCatType(type) {
+  return type === 'cc_payment' ? 'transfer' : type;
+}
+
+function buildRqL1Opts(type, selL1) {
+  const pfx = rqCatType(type) + ':';
+  let l1s = Object.keys(CAT_MAP).filter(k => k.startsWith(pfx))
+                    .map(k => k.replace(pfx, '')).sort();
+  // Fork the shared transfer tree: CC Payment sees ONLY the card L1;
+  // plain Transfer sees everything BUT it (the investment groups).
+  if (type === 'cc_payment')    l1s = l1s.filter(v => v === 'Credit Card Payment');
+  else if (type === 'transfer') l1s = l1s.filter(v => v !== 'Credit Card Payment');
+  return '<option value="">— None —</option>' +
+    l1s.map(v => `<option value="${v}" ${v===selL1?'selected':''}>${v}</option>`).join('');
+}
+
+function buildRqL2Opts(type, l1, selL2) {
+  const key = rqCatType(type) + ':' + l1;
+  const l2s = CAT_MAP[key] || [];
+  return '<option value="">— None —</option>' +
+    l2s.map(v => `<option value="${v}" ${v===selL2?'selected':''}>${v}</option>`).join('');
+}
+
+function openCatPopup(e, rowId) {
+  e.stopPropagation();
+  _rqRowId = rowId;
+  const span  = document.getElementById(`d-cat-${rowId}`);
+  const type  = document.getElementById(`d-type-${rowId}`)?.value  || 'expense';
+  const curL1 = span?.dataset?.l1 || '';
+  const curL2 = span?.dataset?.l2 || '';
+
+  showRqPopup(e, `
+    <label class="form-label" style="font-size:12px">L1 Category</label>
+    <select class="form-control" id="rq-ep-l1" style="margin-bottom:8px" onchange="rqRefreshL2()">
+      ${buildRqL1Opts(type, curL1)}
+    </select>
+    <label class="form-label" style="font-size:12px">L2 Category</label>
+    <select class="form-control" id="rq-ep-l2">${buildRqL2Opts(type, curL1, curL2)}</select>
+  `, () => {
+    const newL1 = document.getElementById('rq-ep-l1').value || '';
+    const newL2 = document.getElementById('rq-ep-l2').value || '';
+    updateCatDisplay(rowId, newL1, newL2);
+  });
+}
+
+function rqRefreshL2() {
+  const rowId = _rqRowId;
+  const type  = document.getElementById(`d-type-${rowId}`)?.value  || 'expense';
+  const l1    = document.getElementById('rq-ep-l1').value;
+  document.getElementById('rq-ep-l2').innerHTML = buildRqL2Opts(type, l1, '');
+}
+
+// ── Approve / Discard ─────────────────────────────────────────────────────────
+function getPayload(rowId) {
+  const catSpan = document.getElementById(`d-cat-${rowId}`);
+  const stmtEl  = document.getElementById(`d-stmt-${rowId}`);
+  const stmtVal = stmtEl?.dataset?.value || '';
+  return {
+    trx_date:      document.getElementById(`d-date-${rowId}`)?.dataset?.value || null,
+    post_date:     document.getElementById(`d-post-${rowId}`)?.dataset?.value || null,
+    statement_date: stmtVal || null,
+    vendor:        document.getElementById(`d-vendor-${rowId}`)?.value || null,
+    amount:        parseFloat(document.getElementById(`d-amount-${rowId}`)?.dataset?.value || 0),
+    // 'cc_payment' is DISPLAY-forked over transfer — store the real type;
+    // the 'Credit Card Payment' L1 carries the distinction.
+    trx_type:      (v => v === 'cc_payment' ? 'transfer' : v)(
+                     document.getElementById(`d-type-${rowId}`)?.value),
+    l1_category:   catSpan?.dataset?.l1 || null,
+    l2_category:   catSpan?.dataset?.l2 || null,
+    account_id:    document.getElementById(`d-acct-${rowId}`)?.value,
+  };
+}
+
+function fadeRow(rowId) {
+  const row = document.getElementById(`rrow-${rowId}`);
+  if (!row) return;
+  row.style.opacity = '0';
+  row.style.transition = 'opacity .3s';
+  setTimeout(() => row.remove(), 320);
+}
+
+async function doApprove(rowId) {
+  const btn = event.target;
+  btn.disabled = true;
+  const res = await fetch(`/api/review/${rowId}/approve`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(getPayload(rowId)),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    fadeRow(rowId);
+  } else {
+    btn.disabled = false;
+  }
+}
+
+async function doSkip(rowId) {
+  const res = await fetch(`/api/review/${rowId}/skip`, { method: 'POST' });
+  if ((await res.json()).ok) fadeRow(rowId);
+}
+
+async function doDiscard(rowId) {
+  const res = await fetch(`/api/review/${rowId}/discard`, { method: 'POST' });
+  if ((await res.json()).ok) fadeRow(rowId);
+}
+
+async function doRestore(rowId) {
+  // Move a skipped/discarded row back to pending. Reload so the row
+  // re-renders with the right action buttons (approve / skip / discard).
+  const res = await fetch(`/api/review/${rowId}/restore`, { method: 'POST' });
+  if ((await res.json()).ok) window.location.reload();
+}
+
+async function doHardDelete(rowId) {
+  if (!confirm('Permanently delete this discarded row? It cannot be recovered.')) return;
+  const res = await fetch(`/api/review/${rowId}/delete`, { method: 'POST' });
+  if ((await res.json()).ok) fadeRow(rowId);
+}
+
+async function deleteAllDiscarded() {
+  if (!confirm('Permanently delete ALL discarded rows? This cannot be undone.')) return;
+  const res = await fetch('/api/review/discarded/delete-all', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: '{}',
+  });
+  const data = await res.json();
+  if (data.ok) {
+    alert(`Deleted ${data.deleted} discarded row(s).`);
+    window.location.reload();
+  }
+}
+
+async function skipAllDupes() {
+  const dupeRows = [...document.querySelectorAll('tr[data-dupe="true"]')];
+  for (const row of dupeRows) {
+    await fetch(`/api/review/${row.dataset.id}/skip`, { method: 'POST' });
+    fadeRow(row.dataset.id);
+  }
+}
+
+async function discardAllIgnores() {
+  const rows = [...document.querySelectorAll('tr[data-ignore="true"]')];
+  if (!rows.length) {
+    alert('No auto-ignored rows to discard.');
+    return;
+  }
+  if (!confirm(`Discard ${rows.length} auto-ignored transaction(s)?`)) return;
+  let ok = 0, fail = 0;
+  for (const row of rows) {
+    try {
+      const res = await fetch(`/api/review/${row.dataset.id}/discard`, { method: 'POST' });
+      if ((await res.json()).ok) ok++; else fail++;
+    } catch (_) { fail++; }
+  }
+  if (fail) alert(`Discarded ${ok}, failed ${fail}.`);
+  // Reload so the badge counts and the table reflect the new state.
+  window.location.reload();
+}
+
+// Keyboard: Enter saves popup; Cmd+Enter approves focused row
+document.addEventListener('keydown', e => {
+  if (document.getElementById('rq-popup').style.display !== 'none') {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); rqSavePopup(); }
+    if (e.key === 'Escape') rqClosePopup();
+    return;
+  }
+  const row = document.activeElement?.closest('tr[data-id]');
+  if (!row || row.dataset.dupe === 'true' || row.dataset.skip === 'true') return;
+  if (e.key === 'Enter' && e.metaKey) doApprove(row.dataset.id);
+});
+</script>
+{% endblock %}

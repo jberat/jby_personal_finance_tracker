@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Security — Personal Financial Tracker{% endblock %}
+{% block page_title %}Security{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:560px">
+
+  <div class="card">
+    <div class="card-header"><h2>Change password</h2></div>
+    <div class="card-body">
+      <p style="margin:0 0 16px 0;color:var(--text-2);font-size:13px;line-height:1.6">
+        Login is password-only (no username). The new password takes effect
+        immediately — no restart needed.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Current password</label>
+        <input class="form-control" type="password" id="pw-current" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label class="form-label">New password</label>
+        <input class="form-control" type="password" id="pw-new" autocomplete="new-password">
+      </div>
+      <div class="form-group" style="margin-bottom:16px">
+        <label class="form-label">Confirm new password</label>
+        <input class="form-control" type="password" id="pw-confirm" autocomplete="new-password">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn btn-primary btn-sm" id="pw-save">Change password</button>
+        <span id="pw-msg" class="text-xs"></span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;padding:14px 16px;background:var(--surface-alt);
+              border:1px solid var(--border);border-radius:var(--radius);
+              font-size:13px;color:var(--text-2);line-height:1.6">
+    <strong style="color:var(--text-1)">Forgot it?</strong>
+    The password lives in the (gitignored) <code>.app_password</code> file next
+    to <code>app.py</code>. Open that file to see it, or edit it
+    and restart to set a new one.
+  </div>
+
+</div>
+
+<script>
+document.getElementById('pw-save').addEventListener('click', async () => {
+  const msg = document.getElementById('pw-msg');
+  const cur = document.getElementById('pw-current').value;
+  const nw  = document.getElementById('pw-new').value;
+  const cf  = document.getElementById('pw-confirm').value;
+  if (!nw) { msg.textContent = 'New password required.'; msg.style.color = 'var(--red)'; return; }
+  if (nw !== cf) { msg.textContent = "New passwords don't match."; msg.style.color = 'var(--red)'; return; }
+  msg.textContent = 'Saving…'; msg.style.color = 'var(--text-3)';
+  try {
+    const r = await fetch('/api/settings/password', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({current: cur, new: nw})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      msg.textContent = '✓ Changed — use it on your next login';
+      msg.style.color = 'var(--green)';
+      ['pw-current','pw-new','pw-confirm'].forEach(id => document.getElementById(id).value = '');
+    } else { msg.textContent = d.error || 'Failed'; msg.style.color = 'var(--red)'; }
+  } catch (e) { msg.textContent = 'Failed: ' + e.message; msg.style.color = 'var(--red)'; }
+});
+</script>
+
+{% endblock %}

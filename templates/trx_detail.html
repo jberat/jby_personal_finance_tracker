@@ -1,0 +1,1217 @@
+{% extends "base.html" %}
+{% block title %}{{ trx.vendor or trx.raw_description[:32] }} — Personal Financial Tracker{% endblock %}
+{% block page_title %}Transaction Detail{% endblock %}
+
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px">←</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── Display config — amount color by trx_type ── #}
+{% set amount_color = 'var(--red)' if trx.trx_type == 'expense' else ('var(--green)' if trx.trx_type == 'income' else 'var(--navy)') %}
+
+{# ── Hero card ── #}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-body" style="padding:28px 32px">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px">
+
+      <div style="flex:1;min-width:0">
+        {# Vendor — editable #}
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:22px;font-weight:700;color:var(--navy);line-height:1.2"
+                id="hero-vendor">
+            {{ trx.vendor or trx.raw_description[:48] }}
+          </span>
+          <button class="btn btn-icon btn-ghost btn-sm" onclick="editField('vendor')"
+                  title="Edit vendor name" style="opacity:0.5">✎</button>
+        </div>
+
+        {# Raw description #}
+        {% if trx.vendor %}
+          <div class="text-sm text-3" style="margin-bottom:12px">{{ trx.raw_description }}</div>
+        {% endif %}
+
+        {# Account pill #}
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="pill" style="background:var(--surface-alt);color:var(--text-2);font-size:11px">
+            {{ trx.account_name }}
+          </span>
+        </div>
+      </div>
+
+      {# Amount #}
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:36px;font-weight:700;color:{{ amount_color }};line-height:1">
+          {{ trx.amount | amt }}
+        </div>
+        <div class="text-sm text-3" style="margin-top:4px">{{ trx.trx_date }}</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{# ── Two-column detail grid ── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+  {# ── Left column ── #}
+  <div style="display:flex;flex-direction:column;gap:20px">
+
+    {# Categorization #}
+    <div class="card">
+      <div class="card-header"><h2>Categorization</h2></div>
+      <div class="card-body">
+        <div class="detail-grid">
+          <div class="detail-row">
+            <span class="detail-label">Type</span>
+            <span class="detail-value">
+              {# 'Transfer' and 'CC Payment' are the same stored type
+                 (trx_type='transfer', P&L-neutral), display-forked on
+                 L1 = 'Credit Card Payment'. Picking CC Payment saves the
+                 forked L1 too; saveTypeChoice() does the mapping. #}
+              {% set is_ccp = trx.trx_type=='transfer' and trx.l1_category == 'Credit Card Payment' %}
+              <select id="f-trx_type" class="form-control form-control-inline"
+                      onchange="saveTypeChoice(this.value)">
+                <option value="expense"    {% if trx.trx_type=='expense'    %}selected{% endif %}>Expense</option>
+                <option value="income"     {% if trx.trx_type=='income'     %}selected{% endif %}>Income</option>
+                <option value="transfer"   {% if trx.trx_type=='transfer' and not is_ccp %}selected{% endif %}>Transfer</option>
+                <option value="cc_payment" {% if is_ccp %}selected{% endif %}>CC Payment</option>
+                <option value="investment" {% if trx.trx_type=='investment' %}selected{% endif %}>Investment</option>
+              </select>
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Category (L1)</span>
+            <span class="detail-value">
+              <span class="cat-typeahead">
+                <input type="text" id="f-l1_category" name="l1_category_{{ trx.id }}"
+                       class="form-control form-control-inline"
+                       value="{{ trx.l1_category or '' }}"
+                       placeholder="Type to filter…"
+                       autocomplete="off"
+                       oninput="catFilter('l1')"
+                       onfocus="catShow('l1')"
+                       onblur="catHide('l1')"
+                       onchange="onL1Change(this.value)"
+                       style="min-width:180px;width:100%">
+                <div id="l1-suggestions" class="cat-suggestions"></div>
+              </span>
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Category (L2)</span>
+            <span class="detail-value">
+              <span class="cat-typeahead">
+                <input type="text" id="f-l2_category" name="l2_category_{{ trx.id }}"
+                       class="form-control form-control-inline"
+                       value="{{ trx.l2_category or '' }}"
+                       placeholder="Select L2…"
+                       autocomplete="off"
+                       oninput="catFilter('l2')"
+                       onfocus="catShow('l2')"
+                       onblur="catHide('l2')"
+                       onchange="saveField('l2_category', this.value)"
+                       style="min-width:180px;width:100%">
+                <div id="l2-suggestions" class="cat-suggestions"></div>
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Note #}
+    <div class="card">
+      <div class="card-header"><h2>Note</h2></div>
+      <div class="card-body">
+        <textarea id="f-note" class="form-control" rows="3"
+                  placeholder="Add a note…"
+                  onblur="saveField('note', this.value)"
+                  style="resize:vertical">{{ trx.note or '' }}</textarea>
+      </div>
+    </div>
+
+    {# Receipts (multi-receipt support — see docs/handbook.html §7) #}
+      <div class="card">
+        <div class="card-header">
+          <h2>Receipts</h2>
+          <span class="text-sm text-3">
+            {{ receipts | length }}
+            {% if (receipts | length) == 1 %}attached{% else %}attached{% endif %}
+          </span>
+        </div>
+        <div class="card-body">
+          <div id="receipts-list">
+            {% for r in receipts %}
+              <div class="receipt-row" data-receipt-id="{{ r.id }}"
+                   style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+                          border:1px solid var(--border);border-radius:var(--radius);
+                          margin-bottom:8px;background:var(--surface-alt)">
+                <span style="font-size:13px;color:var(--text-1);word-break:break-all;flex:1">
+                  {{ r.filename or r.filed_path.split('/')[-1] }}
+                  {% if r.extractor_used and r.extractor_used != 'manual' and r.extractor_used != 'backfill' %}
+                    <span class="text-xs text-3" style="margin-left:6px">
+                      via {{ r.extractor_used }}
+                    </span>
+                  {% endif %}
+                </span>
+                <a href="/api/receipts/preview?path={{ r.filed_path | urlencode }}"
+                   target="_blank" class="btn btn-ghost btn-sm"
+                   style="white-space:nowrap;font-size:11px">
+                  Preview ↗
+                </a>
+                <button class="btn btn-ghost btn-sm receipt-remove-btn"
+                        data-receipt-id="{{ r.id }}"
+                        title="Remove this receipt (file stays on disk)"
+                        style="font-size:11px;color:var(--red)">
+                  Remove
+                </button>
+              </div>
+            {% endfor %}
+          </div>
+
+          {# Add another receipt — visible whether or not any exist #}
+          <div id="receipt-add-row" style="display:flex;gap:8px;margin-top:6px">
+            <input type="text" id="receipt-add-path" class="form-control"
+                   style="font-size:12px;flex:1"
+                   placeholder="Paste full file path…">
+            <button class="btn btn-primary btn-sm" id="receipt-add-btn"
+                    onclick="addReceipt()" style="white-space:nowrap;font-size:12px">
+              {% if receipts %}Add more{% else %}Add receipt{% endif %}
+            </button>
+          </div>
+
+          <div class="text-xs text-3" style="margin-top:6px;line-height:1.5">
+            Full path, e.g. <code>/Users/you/Desktop/…/receipt.pdf</code>.
+            Trx tables show one icon for the first receipt; full list lives here.
+          </div>
+
+          {# "No receipt needed" toggle — only shows on expense trxs since
+             income/transfer don't need receipts anyway. Sets a flag that
+             excludes this trx from the "No receipt" filter on expense tables. #}
+          {% if trx.trx_type == 'expense' %}
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);
+                        display:flex;align-items:center;gap:10px">
+              <label style="display:flex;align-items:center;gap:8px;
+                            cursor:pointer;font-size:13px;color:var(--text-2)">
+                <input type="checkbox" id="no-receipt-needed-toggle"
+                       {% if trx.no_receipt_needed %}checked{% endif %}
+                       onchange="toggleNoReceiptNeeded(this.checked)"
+                       style="width:14px;height:14px;cursor:pointer">
+                No receipt needed for this transaction
+              </label>
+              <span class="text-xs text-3" style="margin-left:auto">
+                (hides it from the "No receipt" filter)
+              </span>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <script>
+        // Toggle the "no receipt needed" flag — uses the standard trx update API.
+        async function toggleNoReceiptNeeded(checked) {
+          const cb = document.getElementById('no-receipt-needed-toggle');
+          cb.disabled = true;
+          try {
+            const res = await fetch('/api/transactions/{{ trx.id }}', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({no_receipt_needed: checked ? 1 : 0})
+            });
+            const data = await res.json();
+            if (!data.ok) {
+              alert('Toggle failed: ' + (data.error || 'unknown'));
+              cb.checked = !checked;
+            }
+          } catch (e) {
+            alert('Toggle failed: ' + e.message);
+            cb.checked = !checked;
+          } finally {
+            cb.disabled = false;
+          }
+        }
+
+        async function addReceipt() {
+          const input = document.getElementById('receipt-add-path');
+          const path  = input.value.trim();
+          if (!path) return;
+
+          const btn = document.getElementById('receipt-add-btn');
+          btn.disabled  = true;
+          const originalText = btn.innerText;
+          btn.innerText = '…';
+
+          try {
+            const res  = await fetch('/api/transactions/{{ trx.id }}/receipts', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({path})
+            });
+            const data = await res.json();
+            if (data.ok) {
+              location.reload();   // simplest: refresh to show new state
+            } else {
+              alert('Failed to add receipt: ' + (data.error || 'unknown'));
+              btn.disabled = false;
+              btn.innerText = originalText;
+            }
+          } catch (e) {
+            alert('Failed to add receipt: ' + e.message);
+            btn.disabled = false;
+            btn.innerText = originalText;
+          }
+        }
+
+        document.querySelectorAll('.receipt-remove-btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (!confirm('Remove this receipt from the transaction?\n\n' +
+                         'The file stays on disk — only the link is removed.')) return;
+            const id = btn.dataset.receiptId;
+            btn.disabled = true;
+            btn.innerText = '…';
+            try {
+              const res  = await fetch(`/api/receipts/${id}`, {method: 'DELETE'});
+              const data = await res.json();
+              if (data.ok) location.reload();
+              else { alert('Remove failed: ' + (data.error || 'unknown'));
+                     btn.disabled = false; btn.innerText = 'Remove'; }
+            } catch (e) {
+              alert('Remove failed: ' + e.message);
+              btn.disabled = false; btn.innerText = 'Remove';
+            }
+          });
+        });
+
+        // Enter-to-submit on the add input
+        document.getElementById('receipt-add-path').addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); addReceipt(); }
+        });
+      </script>
+
+  </div>
+
+  {# ── Right column ── #}
+  <div style="display:flex;flex-direction:column;gap:20px">
+
+    {# Dates #}
+    <div class="card">
+      <div class="card-header"><h2>Dates</h2></div>
+      <div class="card-body">
+        <div class="detail-grid">
+          <div class="detail-row">
+            <span class="detail-label">Transaction Date</span>
+            <span class="detail-value">
+              <input type="date" id="f-trx_date" class="form-control form-control-inline"
+                     value="{{ trx.trx_date }}"
+                     onchange="saveField('trx_date', this.value)">
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Post Date</span>
+            <span class="detail-value">
+              <input type="date" id="f-post_date" class="form-control form-control-inline"
+                     value="{{ trx.post_date or '' }}"
+                     onchange="saveField('post_date', this.value)">
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Statement Date</span>
+            <span class="detail-value">
+              <input type="date" id="f-statement_date" class="form-control form-control-inline"
+                     value="{{ trx.statement_date or '' }}"
+                     onchange="saveField('statement_date', this.value)">
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Payment Date</span>
+            <span class="detail-value">
+              <input type="date" id="f-payment_date" class="form-control form-control-inline"
+                     value="{{ trx.payment_date or '' }}"
+                     onchange="saveField('payment_date', this.value)">
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# General Information #}
+    <div class="card">
+      <div class="card-header"><h2>General Information</h2></div>
+      <div class="card-body">
+        <div class="detail-grid">
+          <div class="detail-row">
+            <span class="detail-label">Amount</span>
+            <span class="detail-value">
+              <input type="number" id="f-amount" class="form-control form-control-inline"
+                     step="0.01" value="{{ trx.amount }}"
+                     onchange="saveField('amount', this.value)"
+                     style="width:120px">
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Account</span>
+            <span class="detail-value">
+              <select id="f-account_id" class="form-control form-control-inline"
+                      onchange="saveField('account_id', this.value)">
+                {% for a in accounts %}
+                  <option value="{{ a.id }}"
+                          {% if a.id == trx.account_id %}selected{% endif %}>
+                    {{ a.name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">ID</span>
+            <span class="detail-value dim mono" style="font-size:11px">{{ trx.id }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Added</span>
+            <span class="detail-value dim" style="font-size:12px">
+              {{ trx.created_at[:16] if trx.created_at else '—' }}
+            </span>
+          </div>
+          {% if import_batch %}
+          <div class="detail-row">
+            <span class="detail-label">Import</span>
+            <span class="detail-value" style="font-size:12px">
+              <span class="mono dim" title="Batch #{{ import_batch.batch_id }} · {{ import_batch.row_count }} rows">
+                {{ import_batch.filename }}
+              </span>
+              <span class="text-xs text-3" style="display:block;margin-top:2px">
+                {{ import_batch.imported_at[:16] if import_batch.imported_at else '' }}
+              </span>
+            </span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# Split + Danger zone #}
+    <div class="card">
+      <div class="card-header"><h2>Actions</h2></div>
+      <div class="card-body" style="padding:4px 0;display:flex;flex-direction:column">
+
+        {# Split Categories #}
+        <div class="action-row" onclick="openModal('split-cats-modal')">
+          <div>
+            <div class="action-title">Split Categories</div>
+            <div class="action-sub">Assign this transaction to multiple L1/L2 categories</div>
+          </div>
+          <span class="action-arrow">›</span>
+        </div>
+
+        {# Undo Split (only if this is a split child or parent) #}
+        {% if trx.is_split %}
+        <div class="action-row" onclick="undoSplit()">
+          <div>
+            <div class="action-title">Undo Split</div>
+            <div class="action-sub">Restore original transaction, remove child rows</div>
+          </div>
+          <span class="action-arrow">›</span>
+        </div>
+        {% endif %}
+
+        {# Link Transaction #}
+        <div class="action-row" onclick="openModal('link-modal')">
+          <div>
+            <div class="action-title">Link Transaction</div>
+            <div class="action-sub">Connect a related transaction (refund, reimbursement…)</div>
+          </div>
+          <span class="action-arrow">›</span>
+        </div>
+
+        <div style="border-top:1px solid var(--border);margin:4px 0"></div>
+
+        {# Delete #}
+        <div class="action-row danger" onclick="deleteTrx()">
+          <div>
+            <div class="action-title" style="color:var(--red)">Delete Transaction</div>
+            <div class="action-sub">Marks as deleted — not permanently removed</div>
+          </div>
+          <span class="action-arrow" style="color:var(--red)">›</span>
+        </div>
+
+      </div>
+    </div>
+
+    {# Tags #}
+      <div class="card">
+        <div class="card-header"><h2>Tags</h2></div>
+        <div class="card-body">
+          <div id="tag-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+            {% for tag in trx_tags %}
+            <span class="pill" style="background:var(--navy-light);color:var(--navy);
+                  display:flex;align-items:center;gap:4px;cursor:default">
+              {{ tag.name }}
+              <button onclick="removeTag({{ tag.id }})"
+                      style="background:none;border:none;cursor:pointer;color:var(--text-3);
+                             font-size:14px;line-height:1;padding:0 0 1px 0"
+                      title="Remove tag">×</button>
+            </span>
+            {% endfor %}
+          </div>
+          <input type="text" id="tag-input" class="form-control"
+                 style="font-size:13px" placeholder="Type a tag, press Enter…">
+        </div>
+      </div>
+
+  </div>
+
+</div>
+
+{# ── Linked Transactions ── only render if 1+ links exist #}
+{% if linked %}
+<div class="card" style="margin-top:20px">
+  <div class="card-header">
+    <h2>Linked Transactions</h2>
+    <span class="text-sm text-3">
+      {{ linked | length }} linked · click row to open
+    </span>
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0;box-shadow:none">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:100px">Date</th>
+          <th>Vendor</th>
+          <th>Category</th>
+          <th class="right" style="width:120px">Amount</th>
+          <th style="width:32px"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for l in linked %}
+      <tr id="link-row-{{ l.id }}" style="cursor:pointer"
+          onclick="window.location='/transactions/{{ l.id }}'">
+        <td class="mono dim">{{ l.trx_date }}</td>
+        <td>
+          <span style="font-weight:500">
+            {{ l.vendor or l.raw_description[:32] }}
+          </span>
+        </td>
+        <td class="dim text-sm">
+          {% if l.l1_category %}
+            {{ l.l1_category }}{% if l.l2_category %} / {{ l.l2_category }}{% endif %}
+          {% else %}
+            <span class="text-3">—</span>
+          {% endif %}
+        </td>
+        <td class="right" style="font-family:var(--font-mono);font-weight:600;
+                                 color:{% if l.trx_type == 'income' or l.amount < 0 %}var(--green){% else %}var(--red){% endif %}">
+          {{ l.amount | amt }}
+        </td>
+        <td class="right">
+          <button onclick="event.stopPropagation();removeLink({{ l.id }})"
+                  title="Remove this link"
+                  style="background:none;border:none;cursor:pointer;
+                         color:var(--text-3);font-size:16px;line-height:1;
+                         padding:2px 6px">×</button>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Similar transactions ── #}
+{% if similar %}
+<div class="card" style="margin-top:20px">
+  <div class="card-header">
+    <h2>Other transactions — {{ trx.vendor or trx.raw_description[:24] }}</h2>
+    <span class="text-sm text-3">{{ similar | length }} recent</span>
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0;box-shadow:none">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Account</th>
+          <th>Category</th>
+          <th>Note</th>
+          <th class="right">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for s in similar %}
+      <tr style="cursor:pointer" onclick="window.location='/transactions/{{ s.id }}'">
+        <td class="mono dim">{{ s.trx_date }}</td>
+        <td class="dim">{{ s.account_name }}</td>
+        <td>
+          {% if s.l1_category %}
+            {{ s.l1_category }}{% if s.l2_category %} / {{ s.l2_category }}{% endif %}
+          {% else %}
+            <span class="text-3">—</span>
+          {% endif %}
+        </td>
+        <td class="dim text-sm">{{ s.note or '—' }}</td>
+        <td class="right">{{ s.amount | amt }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Modal backdrop (shared) ── #}
+<div id="modal-backdrop" style="display:none;position:fixed;inset:0;z-index:399;
+     background:rgba(0,0,0,0.35)" onclick="closeAllModals()"></div>
+
+{# ── Split Categories modal ── #}
+<div id="split-cats-modal" class="modal-panel modal-panel-wide" style="display:none">
+  <div class="modal-title">Split Categories</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <div class="text-sm text-3">
+      Assign portions of <strong>{{ trx.amount | amt }}</strong> to different categories.
+    </div>
+    <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <button id="cats-mode-dollar" class="btn btn-sm"
+              style="border-radius:0;border:none;background:var(--navy);color:#fff;padding:4px 10px;font-size:12px"
+              onclick="setCatsMode('dollar')">$</button>
+      <button id="cats-mode-pct" class="btn btn-sm"
+              style="border-radius:0;border:none;background:transparent;padding:4px 10px;font-size:12px"
+              onclick="setCatsMode('pct')">%</button>
+    </div>
+  </div>
+  <div id="cats-rows" style="display:flex;flex-direction:column;gap:10px"></div>
+  <div class="text-xs" id="cats-remainder" style="margin-top:8px;color:var(--text-3)"></div>
+  <div style="display:flex;gap:8px;margin-top:16px">
+    <button class="btn btn-ghost btn-sm" onclick="addCatsRow()">+ Add row</button>
+    <div style="flex:1"></div>
+    <button class="btn btn-ghost btn-sm" onclick="closeAllModals()">Cancel</button>
+    <button class="btn btn-primary btn-sm" onclick="submitCatsSplit()">Create</button>
+  </div>
+</div>
+
+{# ── Link Transaction modal ── #}
+<div id="link-modal" class="modal-panel" style="display:none">
+  <div class="modal-title">Link Transaction</div>
+  <div class="text-sm text-3" style="margin-bottom:16px">
+    Search for the related transaction (refund, reimbursement, transfer pair…)
+    by vendor or description.
+  </div>
+
+  {# Selected match — appears once user clicks a result #}
+  <div id="link-selected" style="display:none;padding:10px 12px;border:1px solid var(--green);
+       background:var(--green-bg);border-radius:var(--radius);margin-bottom:12px;
+       align-items:center;justify-content:space-between">
+    <div id="link-selected-text" style="font-size:13px"></div>
+    <button onclick="clearLinkSelection()" class="btn btn-ghost btn-sm"
+            style="padding:2px 8px;font-size:12px">Change</button>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">Search</label>
+    <input type="text" id="link-search-input" class="form-control"
+           placeholder="Type vendor or description (min 2 chars)…"
+           oninput="onLinkSearchInput()" autocomplete="off">
+  </div>
+
+  <div id="link-results" style="margin-top:8px;max-height:300px;overflow-y:auto;
+       border:1px solid var(--border);border-radius:var(--radius);display:none">
+  </div>
+  <div id="link-results-empty" style="margin-top:8px;font-size:12px;color:var(--text-3);
+       display:none">No matches.</div>
+
+  {# Hidden state — the actually-selected trx id #}
+  <input type="hidden" id="link-selected-id" value="">
+
+  <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+    <button class="btn btn-ghost btn-sm" onclick="closeAllModals()">Cancel</button>
+    <button id="link-submit-btn" class="btn btn-primary btn-sm" onclick="submitLink()"
+            disabled style="opacity:0.5">Link</button>
+  </div>
+</div>
+
+{# Vendor edit popup — centered #}
+<div id="edit-overlay" style="display:none;position:fixed;inset:0;z-index:199;
+     background:rgba(0,0,0,0.15)" onclick="closeEdit()"></div>
+<div id="edit-popup" style="display:none;position:fixed;z-index:200;
+     top:50%;left:50%;transform:translate(-50%,-50%);
+     background:var(--surface);border:1px solid var(--border-mid);
+     border-radius:var(--radius-lg);box-shadow:var(--shadow);
+     padding:20px;min-width:300px">
+  <div id="edit-popup-content"></div>
+  <div class="flex gap-2 mt-2">
+    <button class="btn btn-primary btn-sm" onclick="saveEdit()">Save</button>
+    <button class="btn btn-ghost btn-sm" onclick="closeEdit()">Cancel</button>
+  </div>
+</div>
+
+<div id="save-indicator" style="display:none;position:fixed;bottom:20px;right:20px;
+     background:var(--navy);color:#fff;padding:8px 16px;border-radius:var(--radius);
+     font-size:13px;z-index:300">Saved</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TRX_ID    = {{ trx.id }};
+const CAT_MAP   = {{ cat_map | tojson }};
+const L1_L2_MAP = {{ l1_l2_map | tojson }};
+
+// ── L1/L2 typeahead ──────────────────────────────────────────────────────────
+// Custom dropdown UI — replaces native <datalist> so the styling stays
+// consistent and Chrome's autofill memory can't bleed past values into the
+// suggestion list.
+function _catGetOptions(kind) {
+  if (kind === 'l1') return Object.keys(L1_L2_MAP).sort();
+  if (kind === 'l2') {
+    const l1 = document.getElementById('f-l1_category').value;
+    return L1_L2_MAP[l1] || [];
+  }
+  return [];
+}
+function _catInput(kind) {
+  return document.getElementById(kind === 'l1' ? 'f-l1_category' : 'f-l2_category');
+}
+function _catRender(kind, filterText) {
+  const panel   = document.getElementById(kind + '-suggestions');
+  if (!panel) return;
+  panel.innerHTML = '';
+  const opts    = _catGetOptions(kind);
+  const f       = (filterText || '').toLowerCase().trim();
+  const matches = f ? opts.filter(o => o.toLowerCase().includes(f)) : opts;
+  if (!matches.length) {
+    const empty = document.createElement('div');
+    empty.className   = 'cat-suggestion-empty';
+    empty.textContent = opts.length ? 'No matches' : 'Pick L1 first';
+    panel.appendChild(empty);
+    return;
+  }
+  matches.forEach(opt => {
+    const item = document.createElement('div');
+    item.className   = 'cat-suggestion-item';
+    item.textContent = opt;
+    // mousedown (not click) so it fires before the input's blur, which
+    // would otherwise hide the panel before the click registers.
+    item.addEventListener('mousedown', e => {
+      e.preventDefault();
+      catSelect(kind, opt);
+    });
+    panel.appendChild(item);
+  });
+}
+function catShow(kind) {
+  const input = _catInput(kind);
+  _catRender(kind, input.value);
+  document.getElementById(kind + '-suggestions').classList.add('open');
+}
+function catHide(kind) {
+  // Small delay so a mousedown on a suggestion fires first.
+  setTimeout(() => {
+    const panel = document.getElementById(kind + '-suggestions');
+    if (panel) panel.classList.remove('open');
+  }, 150);
+}
+function catFilter(kind) {
+  const input = _catInput(kind);
+  _catRender(kind, input.value);
+}
+function catSelect(kind, value) {
+  const input = _catInput(kind);
+  input.value = value;
+  // Manually fire change — programmatic value-set doesn't trigger onchange.
+  input.dispatchEvent(new Event('change'));
+  document.getElementById(kind + '-suggestions').classList.remove('open');
+}
+// Legacy hook — kept so onL1Change can re-call it if anything else still
+// expects an L2 refresh side-effect after L1 changes. In the custom-panel
+// world the L2 panel reads L1_L2_MAP dynamically when shown, so this is
+// effectively a no-op now.
+function onL1Input(l1) { /* no-op; L2 panel re-reads on focus */ }
+function onL1Change(l1) {
+  saveField('l1_category', l1);
+  // Clear L2 if the current value isn't valid for the new L1
+  const l2Input = document.getElementById('f-l2_category');
+  if (l2Input) {
+    const valid = L1_L2_MAP[l1] || [];
+    if (l2Input.value && !valid.includes(l2Input.value)) {
+      l2Input.value = '';
+      saveField('l2_category', null);
+    }
+  }
+}
+
+// ── Type choice (display fork) ───────────────────────────────────────────────
+// 'cc_payment' is DISPLAY-forked over transfer: same stored type, split by
+// L1 = 'Credit Card Payment'. Picking it saves the forked L1 (keeping the
+// current L2 if it already names a card); picking plain Transfer clears a
+// CCP category so the transfer tree gets picked fresh.
+function saveTypeChoice(v) {
+  const l1Input = document.getElementById('f-l1_category');
+  if (v === 'cc_payment') {
+    saveField('trx_type', 'transfer');
+    saveField('l1_category', 'Credit Card Payment');
+    if (l1Input) l1Input.value = 'Credit Card Payment';
+  } else {
+    saveField('trx_type', v);
+    if (v === 'transfer' && l1Input && l1Input.value === 'Credit Card Payment') {
+      l1Input.value = '';
+      saveField('l1_category', null);
+      const l2Input = document.getElementById('f-l2_category');
+      if (l2Input) { l2Input.value = ''; saveField('l2_category', null); }
+    }
+  }
+}
+
+// ── Save field ────────────────────────────────────────────────────────────────
+// Per-field debounce timers. A single shared timer caused saves to clobber
+// each other: change L1 then L2 within 300ms and only the L2 save fired,
+// leaving L1 stale (mismatched L1/L2 in DB).
+const saveTimers = {};
+async function saveField(field, value) {
+  clearTimeout(saveTimers[field]);
+  saveTimers[field] = setTimeout(async () => {
+    // shared.js txPatch: throws + shows an error toast on failure, so
+    // showSaved() only fires on a successful save (same as before).
+    await txPatch(`/api/transactions/${TRX_ID}`, {[field]: value || null});
+    showSaved();
+  }, 300);
+}
+
+function showSaved() {
+  // Unified Saved feedback (2026-07-05): the standard top-right green
+  // toast from shared.js — replaces the old bottom-right indicator.
+  if (window._txSavedToast) _txSavedToast();
+}
+
+// ── Vendor edit popup ─────────────────────────────────────────────────────────
+function editField(field) {
+  const cur = document.getElementById('hero-vendor').textContent.trim();
+  document.getElementById('edit-popup-content').innerHTML = `
+    <label class="form-label">Vendor Name</label>
+    <input class="form-control" id="ep-vendor" type="text" value="${cur}">
+  `;
+  document.getElementById('edit-popup').style.display = 'block';
+  document.getElementById('edit-overlay').style.display = 'block';
+  const inp = document.getElementById('ep-vendor');
+  inp.focus(); inp.select();
+}
+
+function closeEdit() {
+  document.getElementById('edit-popup').style.display = 'none';
+  document.getElementById('edit-overlay').style.display = 'none';
+}
+
+async function saveEdit() {
+  const val = document.getElementById('ep-vendor').value.trim();
+  document.getElementById('hero-vendor').textContent = val;
+  await saveField('vendor', val);
+  closeEdit();
+}
+
+// ── Tags ──────────────────────────────────────────────────────────────────────
+document.getElementById('tag-input').addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const name = e.target.value.trim().toLowerCase();
+  if (!name) return;
+  const res = await fetch(`/api/transactions/${TRX_ID}/tags`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    e.target.value = '';
+    addTagChip(data.tag);
+    showSaved();
+  }
+});
+
+function addTagChip(tag) {
+  const chip = document.createElement('span');
+  chip.className = 'pill';
+  chip.style.cssText = 'background:var(--navy-light);color:var(--navy);display:flex;align-items:center;gap:4px';
+  chip.innerHTML = `${tag.name}
+    <button onclick="removeTag(${tag.id})"
+            style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:14px;line-height:1;padding:0 0 1px 0"
+            title="Remove tag">×</button>`;
+  document.getElementById('tag-chips').appendChild(chip);
+}
+
+async function removeTag(tagId) {
+  const res = await fetch(`/api/transactions/${TRX_ID}/tags/${tagId}`, {method:'DELETE'});
+  if ((await res.json()).ok) {
+    // Remove chip from DOM
+    document.querySelectorAll('#tag-chips .pill').forEach(chip => {
+      if (chip.querySelector(`button[onclick="removeTag(${tagId})"]`)) chip.remove();
+    });
+    showSaved();
+  }
+}
+
+// ── Undo Split ────────────────────────────────────────────────────────────────
+async function undoSplit() {
+  if (!confirm('Undo this split? The child rows will be removed and the original transaction restored.')) return;
+  const res = await fetch(`/api/transactions/${TRX_ID}/unsplit`, {method:'POST'});
+  if ((await res.json()).ok) location.reload();
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+async function deleteTrx() {
+  if (!confirm('Delete this transaction? It will be marked deleted and removed from all views.')) return;
+  const res = await fetch(`/api/transactions/${TRX_ID}/delete`, {method:'POST'});
+  if ((await res.json()).ok) {
+    // Go back to the referring page; fall back to the transactions list
+    try {
+      const ref = document.referrer;
+      if (ref) {
+        const u = new URL(ref);
+        // Use referrer only if it's same origin and not this transaction's own page
+        if (u.origin === window.location.origin && !u.pathname.includes(`/transactions/${TRX_ID}`)) {
+          window.location = ref;
+          return;
+        }
+      }
+    } catch(e) {}
+    window.location = '/expenses/transactions';
+  }
+}
+
+// ── Shared modal helpers ──────────────────────────────────────────────────────
+const ORIG_AMOUNT = {{ trx.amount }};
+const ORIG_TYPE   = {{ trx.trx_type | tojson }};
+// Splits are entered as positive dollar magnitudes; per-child sign is derived
+// from each child's type server-side, so children can differ in type.
+const ORIG_MAGNITUDE = Math.abs(ORIG_AMOUNT);
+
+function openModal(id) {
+  closeAllModals();
+  document.getElementById('modal-backdrop').style.display = 'block';
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  if (id === 'split-cats-modal') initCatsModal();
+  if (id === 'link-modal') {
+    // Reset picker state every open
+    clearLinkSelection();
+    document.getElementById('link-search-input').value = '';
+    document.getElementById('link-results').style.display = 'none';
+    document.getElementById('link-results-empty').style.display = 'none';
+    setTimeout(() => document.getElementById('link-search-input').focus(), 50);
+  }
+}
+function closeAllModals() {
+  document.getElementById('modal-backdrop').style.display = 'none';
+  document.querySelectorAll('.modal-panel').forEach(m => m.style.display = 'none');
+}
+
+// ── Category helpers ─────────────────────────────────────────────────────────
+// Category trees are keyed by trx_type ('expense' / 'income' / 'transfer').
+function buildL1Opts(type, sel) {
+  const pfx = `${type}:`;
+  return '<option value="">— None —</option>' +
+    Object.keys(CAT_MAP).filter(k => k.startsWith(pfx))
+      .map(k => k.replace(pfx, '')).sort()
+      .map(v => `<option value="${v}" ${v===sel?'selected':''}>${v}</option>`).join('');
+}
+
+function buildL2Opts(type, l1, sel) {
+  const key = `${type}:${l1}`;
+  return '<option value="">— None —</option>' +
+    (CAT_MAP[key] || [])
+      .map(v => `<option value="${v}" ${v===sel?'selected':''}>${v}</option>`).join('');
+}
+
+// ── Split modes ($ vs %) ──────────────────────────────────────────────────────
+let catsSplitMode = 'dollar';
+
+function setCatsMode(mode) {
+  catsSplitMode = mode;
+  document.getElementById('cats-mode-dollar').style.background = mode === 'dollar' ? 'var(--navy)' : 'transparent';
+  document.getElementById('cats-mode-dollar').style.color      = mode === 'dollar' ? '#fff' : '';
+  document.getElementById('cats-mode-pct').style.background    = mode === 'pct'    ? 'var(--navy)' : 'transparent';
+  document.getElementById('cats-mode-pct').style.color         = mode === 'pct'    ? '#fff' : '';
+  document.querySelectorAll('#cats-rows .pct-col').forEach(el => el.style.display = mode === 'pct' ? '' : 'none');
+  updateRemainders();
+}
+
+function splitRow(idx, containerId) {
+  const id   = `${containerId}-row-${idx}`;
+  const half = (ORIG_MAGNITUDE / 2).toFixed(2);
+  const isPct = catsSplitMode === 'pct';
+
+  // Per-child type selector — lets one part be income/tax and another an expense.
+  const typeField = `
+    <div>
+      <div class="form-label" style="font-size:11px">Type</div>
+      <select class="form-control row-type" style="height:32px;font-size:13px"
+              onchange="onTypeChange(this)">
+        <option value="expense"  ${ORIG_TYPE==='expense' ?'selected':''}>Expense</option>
+        <option value="income"   ${ORIG_TYPE==='income'  ?'selected':''}>Income</option>
+        <option value="transfer" ${ORIG_TYPE==='transfer'?'selected':''}>Transfer</option>
+      </select>
+    </div>`;
+
+  const pctDisplay = isPct ? '' : 'none';
+
+  return `
+    <div id="${id}" style="border:1px solid var(--border);border-radius:var(--radius);
+         padding:12px;background:var(--surface-alt);position:relative">
+      <button onclick="this.closest('div[id]').remove();updateRemainders()"
+              style="position:absolute;top:6px;right:8px;background:none;border:none;
+                     cursor:pointer;color:var(--text-3);font-size:18px">×</button>
+      <div style="font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:8px">Part ${idx+1}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        <div class="pct-col" style="display:${pctDisplay}">
+          <div class="form-label" style="font-size:11px">Percent</div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <input type="number" class="form-control row-pct" step="0.1" min="0" max="100"
+                   value="50" style="height:32px;font-size:13px;width:70px"
+                   oninput="onPctInput(this)">
+            <span style="font-size:12px;color:var(--text-3)">%</span>
+          </div>
+        </div>
+        <div>
+          <div class="form-label" style="font-size:11px">Amount</div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span style="font-size:13px;color:var(--text-3)">$</span>
+            <input type="number" class="form-control row-amt" step="0.01" min="0"
+                   value="${half}" style="height:32px;font-size:13px"
+                   oninput="updateRemainders()">
+          </div>
+        </div>
+        ${typeField}
+        <div>
+          <div class="form-label" style="font-size:11px">Category (L1)</div>
+          <select class="form-control row-l1" style="height:32px;font-size:13px"
+                  onchange="refreshL2(this)">
+            ${buildL1Opts(ORIG_TYPE, '')}
+          </select>
+        </div>
+        <div>
+          <div class="form-label" style="font-size:11px">Category (L2)</div>
+          <select class="form-control row-l2" style="height:32px;font-size:13px">
+            <option value="">— None —</option>
+          </select>
+        </div>
+        <div style="grid-column:1/-1">
+          <div class="form-label" style="font-size:11px">Note</div>
+          <input type="text" class="form-control row-note" placeholder="optional…"
+                 style="height:32px;font-size:13px">
+        </div>
+      </div>
+    </div>`;
+}
+
+function onPctInput(pctInput) {
+  const row = pctInput.closest('div[id]');
+  const amtInput = row.querySelector('.row-amt');
+  const pct = parseFloat(pctInput.value) || 0;
+  amtInput.value = (ORIG_MAGNITUDE * pct / 100).toFixed(2);
+  updateRemainders();
+}
+
+function onTypeChange(typeSel) {
+  const row = typeSel?.closest ? typeSel.closest('div[id]') : null;
+  if (!row) return;  // called without a modal row (e.g. main trx_type select)
+  const l1Sel = row.querySelector('.row-l1');
+  const l2Sel = row.querySelector('.row-l2');
+  // Category trees are type-specific (expense vs income) — rebuild.
+  l1Sel.innerHTML = buildL1Opts(typeSel.value, '');
+  l2Sel.innerHTML = '<option value="">— None —</option>';
+}
+
+function refreshL2(l1Sel) {
+  const row   = l1Sel.closest('div[id]');
+  const l2    = row.querySelector('.row-l2');
+  const type  = row.querySelector('.row-type')?.value || ORIG_TYPE;
+  l2.innerHTML = buildL2Opts(type, l1Sel.value, '');
+}
+
+function updateRemainders() {
+  ['cats'].forEach(prefix => {
+    const cont = document.getElementById(`${prefix}-rows`);
+    if (!cont) return;
+    const used = [...cont.querySelectorAll('.row-amt')]
+      .reduce((s, i) => s + Math.abs(parseFloat(i.value) || 0), 0);
+    const rem = ORIG_MAGNITUDE - used;
+    const el  = document.getElementById(`${prefix}-remainder`);
+    if (!el) return;
+    el.textContent = Math.abs(rem) < 0.02
+      ? '✓ Balanced'
+      : `Remaining: $${rem.toFixed(2)}`;
+    el.style.color = Math.abs(rem) < 0.02 ? 'var(--green)' : 'var(--red)';
+  });
+}
+
+// ── Split Categories ──────────────────────────────────────────────────────────
+let catsRowIdx = 0;
+function initCatsModal() {
+  catsRowIdx = 0;
+  catsSplitMode = 'dollar';
+  document.getElementById('cats-rows').innerHTML = '';
+  setCatsMode('dollar');
+  addCatsRow(); addCatsRow();
+}
+function addCatsRow() {
+  document.getElementById('cats-rows').insertAdjacentHTML(
+    'beforeend', splitRow(catsRowIdx++, 'cats')
+  );
+  updateRemainders();
+}
+async function submitCatsSplit() {
+  const rows = document.querySelectorAll('#cats-rows > div[id]');
+  const splits = [...rows].map(row => ({
+    amount:      Math.abs(parseFloat(row.querySelector('.row-amt').value) || 0),
+    trx_type:    row.querySelector('.row-type')?.value || ORIG_TYPE,
+    l1_category: row.querySelector('.row-l1').value || null,
+    l2_category: row.querySelector('.row-l2').value || null,
+    note:        row.querySelector('.row-note').value.trim() || null,
+  }));
+  await doSplit(splits);
+}
+
+async function doSplit(splits) {
+  const total = splits.reduce((a,b) => a + Math.abs(b.amount), 0);
+  if (Math.abs(total - ORIG_MAGNITUDE) > 0.02) {
+    alert(`Amounts ($${total.toFixed(2)}) must add up to $${ORIG_MAGNITUDE.toFixed(2)}`);
+    return;
+  }
+  const res  = await fetch(`/api/transactions/${TRX_ID}/split`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({splits}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    window.location = `/transactions/${data.new_ids[0]}`;
+  } else {
+    alert(data.error || 'Split failed');
+  }
+}
+
+// ── Link Transaction (search picker) ─────────────────────────────────────────
+let linkSearchTimer = null;
+
+function onLinkSearchInput() {
+  clearTimeout(linkSearchTimer);
+  linkSearchTimer = setTimeout(runLinkSearch, 200);
+}
+
+async function runLinkSearch() {
+  const q = document.getElementById('link-search-input').value.trim();
+  const resultsEl = document.getElementById('link-results');
+  const emptyEl   = document.getElementById('link-results-empty');
+  if (q.length < 2) {
+    resultsEl.style.display = 'none';
+    emptyEl.style.display   = 'none';
+    return;
+  }
+  const res = await fetch(
+    `/api/transactions/search?q=${encodeURIComponent(q)}&exclude_id=${TRX_ID}`
+  );
+  const data = await res.json();
+  const rows = data.results || [];
+
+  if (!rows.length) {
+    resultsEl.style.display = 'none';
+    emptyEl.style.display   = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = rows.map(r => {
+    const sign = r.trx_type === 'income' ? '+' : (r.amount < 0 ? '+' : '-');
+    const amt  = `${sign}$${Math.abs(r.amount).toFixed(2)}`;
+    const vendor = (r.vendor || r.raw_description || '').replace(/"/g,'&quot;');
+    // Reference-only icon when this trx is already in a link relationship.
+    const linkIcon = r.has_link ? `
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.5" style="color:var(--navy);opacity:0.55;flex-shrink:0"
+           title="Already linked">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>` : '';
+    return `
+      <div class="link-result-row" data-id="${r.id}"
+           data-summary="${r.trx_date} · ${vendor} · ${amt} (id ${r.id})"
+           onclick="selectLinkResult(this)"
+           style="display:flex;align-items:center;gap:10px;padding:10px 12px;
+                  cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-3);width:88px">
+          ${r.trx_date}
+        </div>
+        <div style="flex:1;font-weight:500;display:flex;align-items:center;gap:6px">
+          <span>${vendor}</span>${linkIcon}
+        </div>
+        <div style="font-family:var(--font-mono);font-size:12px;width:88px;text-align:right">
+          ${amt}
+        </div>
+      </div>`;
+  }).join('');
+
+  // hover style
+  resultsEl.querySelectorAll('.link-result-row').forEach(el => {
+    el.addEventListener('mouseenter', () => el.style.background = 'var(--surface-alt)');
+    el.addEventListener('mouseleave', () => el.style.background = '');
+  });
+}
+
+function selectLinkResult(el) {
+  const id  = el.dataset.id;
+  const sum = el.dataset.summary;
+  document.getElementById('link-selected-id').value = id;
+  document.getElementById('link-selected-text').textContent = `Selected: ${sum}`;
+  const sel = document.getElementById('link-selected');
+  sel.style.display = 'flex';
+  document.getElementById('link-results').style.display = 'none';
+  document.getElementById('link-search-input').value = '';
+  const btn = document.getElementById('link-submit-btn');
+  btn.disabled = false;
+  btn.style.opacity = '1';
+}
+
+function clearLinkSelection() {
+  document.getElementById('link-selected-id').value = '';
+  document.getElementById('link-selected').style.display = 'none';
+  const btn = document.getElementById('link-submit-btn');
+  btn.disabled = true;
+  btn.style.opacity = '0.5';
+  document.getElementById('link-search-input').focus();
+}
+
+async function submitLink() {
+  const linkedId = parseInt(document.getElementById('link-selected-id').value);
+  if (!linkedId) { alert('Pick a transaction first.'); return; }
+  const res = await fetch(`/api/transactions/${TRX_ID}/links`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({linked_id: linkedId}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    closeAllModals();
+    // Reload so the Linked Transactions card includes the new addition.
+    window.location.reload();
+  } else {
+    alert(data.error || 'Could not add link.');
+  }
+}
+
+// Remove an existing link via inline ✕ in the Linked Transactions card.
+async function removeLink(linkedId) {
+  if (!confirm('Remove this link? The transactions stay; only the link is dropped.')) return;
+  const res = await fetch(`/api/transactions/${TRX_ID}/links/${linkedId}`, {method:'DELETE'});
+  if ((await res.json()).ok) {
+    const row = document.getElementById(`link-row-${linkedId}`);
+    if (row) { row.style.opacity = '0'; setTimeout(() => row.remove(), 250); }
+  }
+}
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeEdit(); closeAllModals(); }
+  if (e.key === 'Enter' && document.getElementById('edit-popup').style.display !== 'none') saveEdit();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Shortcuts — Personal Financial Tracker{% endblock %}
+{% block page_title %}Keyboard Shortcuts{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:640px">
+
+  <div class="text-sm text-2" style="margin-bottom:24px;line-height:1.6">
+    Shortcuts for the receipt review screen. Click a
+    key field and press the key you want. Shortcuts don't fire while you're
+    typing in a text box.
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Receipt review</h2></div>
+    <div class="card-body" style="padding:0">
+      <table style="width:100%">
+        <tbody>
+          {% for action, label in actions.items() %}
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:12px 16px;color:var(--text-2)">{{ label }}</td>
+            <td style="padding:12px 16px;text-align:right;width:160px">
+              <input class="form-control sc-key" data-action="{{ action }}"
+                     value="{{ shortcuts[action] }}" readonly
+                     style="width:130px;text-align:center;cursor:pointer;font-family:var(--font-mono);font-size:12px"
+                     title="Click, then press a key">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+    <button class="btn btn-primary btn-sm" id="sc-save">Save shortcuts</button>
+    <button class="btn btn-ghost btn-sm" id="sc-reset">Reset to defaults</button>
+    <span id="sc-msg" class="text-xs"></span>
+  </div>
+
+</div>
+
+<script>
+const SC_DEFAULTS = {confirm:'Enter', skip:'s', not_receipt:'n', repick:'r', link:'l', split:'x'};
+
+document.querySelectorAll('.sc-key').forEach(inp => {
+  inp.addEventListener('focus', () => { inp.value = 'press a key…'; });
+  inp.addEventListener('blur',  () => { if (inp.value === 'press a key…') inp.value = inp.dataset.prev || SC_DEFAULTS[inp.dataset.action]; });
+  inp.addEventListener('keydown', e => {
+    e.preventDefault();
+    if (['Shift','Control','Alt','Meta'].includes(e.key)) return;
+    inp.dataset.prev = inp.value = e.key === ' ' ? 'Space' : e.key;
+    inp.blur();
+  });
+  inp.dataset.prev = inp.value;
+});
+
+document.getElementById('sc-reset').addEventListener('click', () => {
+  document.querySelectorAll('.sc-key').forEach(inp => {
+    inp.value = inp.dataset.prev = SC_DEFAULTS[inp.dataset.action];
+  });
+});
+
+document.getElementById('sc-save').addEventListener('click', async () => {
+  const msg = document.getElementById('sc-msg');
+  const map = {};
+  document.querySelectorAll('.sc-key').forEach(inp => { map[inp.dataset.action] = inp.value; });
+  msg.textContent = 'Saving…'; msg.style.color = 'var(--text-3)';
+  try {
+    const r = await fetch('/api/settings/shortcuts', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(map)
+    });
+    const d = await r.json();
+    if (d.ok) { if (window._txSavedToast) _txSavedToast(); msg.textContent = '✓ Saved — applies on next review-page load'; msg.style.color = 'var(--green)'; }
+    else { msg.textContent = d.error || 'Save failed'; msg.style.color = 'var(--red)'; }
+  } catch (e) { msg.textContent = 'Save failed: ' + e.message; msg.style.color = 'var(--red)'; }
+});
+</script>
+
+{% endblock %}

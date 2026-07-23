@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}All Tools — Personal Financial Tracker{% endblock %}
+{% block page_title %}All Tools{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div>
+  <div class="text-sm text-2" style="margin-bottom:22px;line-height:1.6">
+    Every tool available in the app —
+    including ones not built yet. Choose which appear in the sidebar at
+    <a href="/settings/tools-menu"
+       style="color:var(--navy)">Docs &amp; Settings → Tools Menu</a>.
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">
+    {% for t in cards %}
+    <div class="card" style="display:flex;flex-direction:column">
+      <div class="card-header">
+        <h2>{{ t.title }}</h2>
+        {% if not t.built %}
+        <span class="pill" style="background:var(--surface-alt);border:1px solid var(--border);
+              font-size:11px;color:var(--text-3);padding:2px 9px;border-radius:11px">Coming soon</span>
+        {% endif %}
+      </div>
+      <div class="card-body" style="flex:1;display:flex;flex-direction:column">
+        <div class="text-sm text-2" style="line-height:1.6;flex:1">{{ t.desc }}</div>
+        {% if t.note %}
+        <div class="text-xs text-3" style="margin-top:10px;line-height:1.5">◆ {{ t.note }}</div>
+        {% endif %}
+        <div style="margin-top:14px">
+          {% if t.built %}
+          <a class="btn btn-primary btn-sm" href="{{ t.url }}">Open →</a>
+          {% else %}
+          <a class="btn btn-ghost btn-sm" href="{{ t.url }}">Preview →</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}

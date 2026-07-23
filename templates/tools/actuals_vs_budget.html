@@ -1,0 +1,546 @@
+{% extends "base.html" %}
+{% block title %}Actuals vs. Budget — Personal Financial Tracker{% endblock %}
+{% block page_title %}Actuals vs. Budget{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block header_actions %}
+  <form method="GET" style="display:flex;align-items:center;gap:10px">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="sort" value="{{ sort_by }}">
+    <label class="text-sm text-3" for="year-select">Year:</label>
+    <select id="year-select" name="year" class="form-control"
+            style="width:auto;font-size:13px;padding:5px 9px"
+            onchange="this.form.submit()">
+      {% for y in available_years %}
+        <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </form>
+{% endblock %}
+
+{% block content %}
+
+{# ── Helpers ──────────────────────────────────────────────────────────── #}
+{% set AMBER     = '#B45309' %}
+{% set NEUTRAL   = '#94A3B8' %}
+
+{% macro variance_color(v) -%}
+  {%- if v is none -%}var(--text-3)
+  {%- elif v > 0 -%}var(--red)
+  {%- elif v < 0 -%}var(--green)
+  {%- else -%}var(--text-2)
+  {%- endif -%}
+{%- endmacro %}
+
+{# Money: -$XX for negatives, $XX for non-negatives (sign BEFORE the dollar) #}
+{% macro money(v) -%}
+  {%- if v is none -%}—
+  {%- elif v < 0 -%}-${{ '{:,.0f}'.format(v|abs) }}
+  {%- else -%}${{ '{:,.0f}'.format(v) }}
+  {%- endif -%}
+{%- endmacro %}
+
+{# Signed money: +$XX / -$XX (always shows sign) — for variance display #}
+{% macro money_signed(v) -%}
+  {%- if v is none -%}—
+  {%- elif v < 0 -%}-${{ '{:,.0f}'.format(v|abs) }}
+  {%- else -%}+${{ '{:,.0f}'.format(v) }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro pct(v) -%}{% if v is none %}—{% else %}{{ '%.0f' % v }}%{% endif %}{%- endmacro %}
+
+{# Signed percent: +25% / -25% / 0% #}
+{% macro pct_signed(v) -%}
+  {%- if v is none -%}—
+  {%- elif v < 0 -%}-{{ '%.0f' % (v|abs) }}%
+  {%- elif v > 0 -%}+{{ '%.0f' % v }}%
+  {%- else -%}0%
+  {%- endif -%}
+{%- endmacro %}
+
+<div>
+
+  {# ── Period framing band ─────────────────────────────────────────── #}
+  <div class="text-sm text-2" style="margin-bottom:18px;line-height:1.5">
+    <strong style="color:var(--text-1)">As of {{ as_of_date.strftime('%b %d, %Y') }}</strong>
+    &nbsp;·&nbsp;
+    {% if months_complete is integer or months_complete == months_complete|int %}
+      {{ months_complete|int }} of 12 months
+    {% else %}
+      {{ '%.1f' % months_complete }} of 12 months
+    {% endif %}
+    &nbsp;·&nbsp;
+    {{ '%.0f' % prorate_pct }}% of year
+    {% if view == 'annual' and year == as_of_date.year %}
+      &nbsp;·&nbsp; <span class="text-3">({{ '%.0f' % year_elapsed_pct }}% by calendar)</span>
+    {% endif %}
+  </div>
+
+  {# ── Stat tiles ─────────────────────────────────────────────────── #}
+  <div style="display:grid;grid-template-columns:repeat(4, minmax(0, 1fr));gap:12px;margin-bottom:20px">
+    <div class="card" style="padding:14px 16px">
+      <div class="text-sm text-3" style="margin-bottom:4px">YTD Actual</div>
+      <div style="font-size:22px;font-weight:700;color:var(--text-1)">
+        {{ money(totals.actual) }}
+      </div>
+    </div>
+    <div class="card" style="padding:14px 16px">
+      <div class="text-sm text-3" style="margin-bottom:4px">
+        {% if view == 'annual' %}Annual Budget{% else %}YTD Budget (prorated){% endif %}
+      </div>
+      <div style="font-size:22px;font-weight:700;color:var(--text-1)">
+        {% if view == 'annual' %}{{ money(totals.annual_budget) }}{% else %}{{ money(totals.prorated_budget) }}{% endif %}
+      </div>
+      {% if view == 'annual' %}
+        <div class="text-sm text-3" style="margin-top:4px">
+          Prorated YTD: {{ money(totals.prorated_budget) }}
+        </div>
+      {% else %}
+        <div class="text-sm text-3" style="margin-top:4px">
+          Annual: {{ money(totals.annual_budget) }}
+        </div>
+      {% endif %}
+    </div>
+    <div class="card" style="padding:14px 16px">
+      <div class="text-sm text-3" style="margin-bottom:4px">Pace Variance</div>
+      <div style="font-size:22px;font-weight:700;color:{{ variance_color(totals.pace_variance) }}">
+        {{ money_signed(totals.pace_variance) }}
+      </div>
+      {% if totals.pace_variance_pct is not none %}
+        <div class="text-sm" style="margin-top:4px;color:{{ variance_color(totals.pace_variance) }}">
+          {{ pct_signed(totals.pace_variance_pct) }} vs. pace
+        </div>
+      {% endif %}
+    </div>
+    <div class="card" style="padding:14px 16px">
+      <div class="text-sm text-3" style="margin-bottom:4px">% of Annual Budget</div>
+      <div style="font-size:22px;font-weight:700;color:var(--text-1)">
+        {{ pct(totals.annual_pct) }}
+      </div>
+      <div class="text-sm text-3" style="margin-top:4px">
+        Year elapsed: {{ '%.0f' % year_elapsed_pct }}%
+      </div>
+    </div>
+  </div>
+
+  {# ── View toggle + sort ─────────────────────────────────────────── #}
+  <div style="display:flex;justify-content:space-between;align-items:center;
+              margin-bottom:14px;gap:14px;flex-wrap:wrap">
+    <div style="display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);
+                overflow:hidden;background:var(--surface)">
+      <a href="?view=pace&year={{ year }}&sort={{ sort_by }}"
+         style="padding:7px 16px;font-size:13px;text-decoration:none;
+                {% if view == 'pace' %}background:var(--navy);color:white;font-weight:600{% else %}color:var(--text-2){% endif %}">
+        Pace
+      </a>
+      <a href="?view=annual&year={{ year }}&sort={{ sort_by }}"
+         style="padding:7px 16px;font-size:13px;text-decoration:none;border-left:1px solid var(--border);
+                {% if view == 'annual' %}background:var(--navy);color:white;font-weight:600{% else %}color:var(--text-2){% endif %}">
+        Annual
+      </a>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <label class="text-sm text-3">Sort:</label>
+      {% for opt, label in [('variance','Worst variance'),('alpha','A–Z'),('spend','Highest spend')] %}
+        <a href="?view={{ view }}&year={{ year }}&sort={{ opt }}"
+           style="padding:5px 11px;font-size:12px;text-decoration:none;
+                  border:1px solid var(--border);border-radius:11px;
+                  {% if sort_by == opt %}background:var(--navy-light);color:var(--navy);font-weight:600;border-color:var(--navy-light){% else %}color:var(--text-2){% endif %}">
+          {{ label }}
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ── Helper text under tabs ─────────────────────────────────────── #}
+  <div class="text-sm text-3" style="margin-bottom:14px;line-height:1.5">
+    {% if view == 'pace' %}
+      Each row compares YTD actuals to a <strong>prorated YTD budget</strong>
+      (annual ÷ 12 × {{ months_complete|int if months_complete == months_complete|int else '%.1f'|format(months_complete) }} months).
+      Negative variance is good — under pace.
+    {% else %}
+      Each row shows YTD actuals against the <strong>full annual budget</strong>,
+      with a marker at <strong>{{ '%.0f' % year_elapsed_pct }}% year-elapsed</strong> as a reference.
+      A bar that crosses the marker means you're ahead of pace.
+    {% endif %}
+  </div>
+
+  {# ── Empty state ────────────────────────────────────────────────── #}
+  {% if totals.annual_budget == 0 %}
+    <div class="card" style="padding:30px;text-align:center;line-height:1.7">
+      <div style="font-weight:600;color:var(--text-1);margin-bottom:6px">
+        No budget set for {{ year }} yet.
+      </div>
+      <div class="text-sm text-2" style="margin-bottom:14px">
+        Set annual budget values for your expenses to use this view.
+      </div>
+      <a href="/settings/assumptions/budget-values"
+         class="btn btn-primary">Set Budget Values →</a>
+    </div>
+  {% else %}
+
+  {# ── Income card — same framing, INVERTED
+       goodness: at/above pace = green, behind = red. ────────────────── #}
+  {% if income_rows %}
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>Income</h2></div>
+    <div class="card-body" style="padding:0">
+      <table class="trx-table-uniform" style="margin:0">
+        <thead>
+          <tr>
+            <th style="width:180px">Line</th>
+            <th style="width:110px">Actual</th>
+            <th style="width:130px">{% if view == 'pace' %}Prorated{% else %}Annual{% endif %} Budget</th>
+            <th style="width:110px">% of Budget</th>
+            <th style="min-width:240px">{% if view == 'pace' %}vs. Pace{% else %}vs. Year Elapsed{% endif %}</th>
+            <th style="width:140px">{% if view == 'pace' %}Variance{% else %}Remaining{% endif %}</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in income_rows %}
+          {% set denom = r.prorated_budget if view == 'pace' else r.annual_budget %}
+          {% set fill_pct = (r.actual / denom * 100) if denom else 0 %}
+          {% set visual_fill = fill_pct if fill_pct < 130 else 130 %}
+          {% if r.status == 'nobudget' %}{% set fill_color = NEUTRAL %}
+          {% elif r.status == 'under' %}{% set fill_color = 'var(--green)' %}
+          {% elif r.status == 'near' %}{% set fill_color = AMBER %}
+          {% else %}{% set fill_color = 'var(--red)' %}{% endif %}
+          <tr>
+            <td style="font-weight:500;color:var(--text-1)">{{ r.l1 }}</td>
+            <td style="font-size:13px">{{ money(r.actual) }}</td>
+            <td style="font-size:13px;color:var(--text-2)">
+              {% if r.status == 'nobudget' %}<span class="text-3">—</span>
+              {% else %}{{ money(r.prorated_budget if view == 'pace' else r.annual_budget) }}{% endif %}
+            </td>
+            <td style="font-size:13px;color:var(--text-2)">
+              {% if r.status == 'nobudget' %}<span class="text-3">—</span>
+              {% else %}{{ pct(fill_pct) }}{% endif %}
+            </td>
+            <td>
+              {% if r.status == 'nobudget' %}
+                <div style="display:inline-flex;align-items:center;gap:10px">
+                  <div style="width:240px;height:8px;background:var(--surface-alt);border-radius:4px"></div>
+                  <a href="/settings/assumptions/budget-values"
+                     class="text-sm" style="color:var(--text-3);text-decoration:none;font-size:11px">Set budget →</a>
+                </div>
+              {% else %}
+                {% set _scale = 100.0 / 130.0 %}
+                {% set _fill_scaled = visual_fill * _scale %}
+                {% set _mark_pos = 100.0 * _scale %}
+                <div style="display:inline-block;width:240px;height:10px;background:var(--surface-alt);
+                            border-radius:5px;position:relative;vertical-align:middle">
+                  <div style="height:100%;width:{{ '%.2f' % _fill_scaled }}%;background:{{ fill_color }};
+                              border-radius:5px;min-width:2px;transition:width .2s"></div>
+                  <div title="100% of {{ 'prorated' if view == 'pace' else 'annual' }} budget"
+                       style="position:absolute;top:-6px;bottom:-6px;left:{{ '%.2f' % _mark_pos }}%;
+                              width:2px;background:var(--text-1)"></div>
+                </div>
+              {% endif %}
+            </td>
+            <td style="font-size:13px">
+              {% if r.status == 'nobudget' %}<span class="text-3">—</span>
+              {% elif view == 'pace' %}
+                <span style="color:{{ 'var(--green)' if r.pace_variance >= 0 else 'var(--red)' }}">
+                  {{ money_signed(r.pace_variance) }}</span>
+              {% else %}
+                <span style="color:var(--text-2)">{{ money(r.annual_budget - r.actual) }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+          <tr style="font-weight:700;border-top:2px solid var(--border)">
+            <td>Total</td>
+            <td style="font-size:13px">{{ money(income_totals.actual) }}</td>
+            <td style="font-size:13px">{{ money(income_totals.prorated_budget if view == 'pace' else income_totals.annual_budget) }}</td>
+            <td></td><td></td>
+            <td style="font-size:13px">
+              {% if view == 'pace' %}
+                <span style="color:{{ 'var(--green)' if income_totals.pace_variance >= 0 else 'var(--red)' }}">
+                  {{ money_signed(income_totals.pace_variance) }}</span>
+              {% else %}
+                <span style="color:var(--text-2)">{{ money(income_totals.annual_budget - income_totals.actual) }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Main table ─────────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-header"><h2>Expenses</h2></div>
+    <div class="card-body" style="padding:0">
+      <table class="trx-table-uniform" style="margin:0">
+        <thead>
+          <tr>
+            <th style="width:180px">L1 Category</th>
+            <th style="width:110px">Actual</th>
+            <th style="width:130px">
+              {% if view == 'pace' %}Prorated{% else %}Annual{% endif %} Budget
+            </th>
+            <th style="width:110px">% of Budget</th>
+            <th style="min-width:240px">
+              {% if view == 'pace' %}vs. Pace{% else %}vs. Year Elapsed{% endif %}
+            </th>
+            <th style="width:140px">
+              {% if view == 'pace' %}Variance{% else %}Remaining{% endif %}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+          {% if view == 'pace' %}
+            {% set denom = r.prorated_budget %}
+            {% set fill_pct = (r.actual / denom * 100) if denom else 0 %}
+          {% else %}
+            {% set denom = r.annual_budget %}
+            {% set fill_pct = (r.actual / denom * 100) if denom else 0 %}
+          {% endif %}
+          {% set visual_fill = fill_pct if fill_pct < 130 else 130 %}
+
+          {% if r.status == 'nobudget' %}
+            {% set fill_color = NEUTRAL %}
+          {% elif r.status == 'under' %}
+            {% set fill_color = 'var(--green)' %}
+          {% elif r.status == 'near' %}
+            {% set fill_color = AMBER %}
+          {% else %}
+            {% set fill_color = 'var(--red)' %}
+          {% endif %}
+
+          {% set rkey = r.l1 | replace(' ','_') | replace('&','_') %}
+          <tr>
+            <td style="font-weight:500;color:var(--text-1)">
+              {% if r.l2_detail %}
+                <span class="avb-expand" data-key="{{ rkey }}"
+                      style="cursor:pointer;display:inline-block;width:16px;
+                             color:var(--text-3);user-select:none">▶</span>
+              {% else %}
+                <span style="display:inline-block;width:16px"></span>
+              {% endif %}
+              {{ r.l1 }}
+              {% if r.l2_detail %}
+                <span class="text-3" style="font-size:11px;margin-left:4px"
+                      title="Budget is the sum of this category's L2 budgets">Σ L2</span>
+              {% endif %}
+            </td>
+            <td style="font-size:13px">{{ money(r.actual) }}</td>
+            <td style="font-size:13px;color:var(--text-2)">
+              {% if r.status == 'nobudget' %}
+                <span class="text-3">—</span>
+              {% else %}
+                {{ money(r.prorated_budget if view == 'pace' else r.annual_budget) }}
+              {% endif %}
+            </td>
+            <td style="font-size:13px;color:var(--text-2)">
+              {% if r.status == 'nobudget' %}
+                <span class="text-3">—</span>
+              {% else %}
+                {{ pct(fill_pct) }}
+              {% endif %}
+            </td>
+            <td>
+              {% if r.status == 'nobudget' %}
+                <div style="display:inline-flex;align-items:center;gap:10px">
+                  <div style="width:240px;height:8px;background:var(--surface-alt);
+                              border-radius:4px"></div>
+                  <a href="/settings/assumptions/budget-values"
+                     class="text-sm" style="color:var(--text-3);text-decoration:none;font-size:11px">
+                    Set budget →
+                  </a>
+                </div>
+              {% else %}
+                {# Container = 240px; "100%" line sits at 200/240 = 83.33% of container.
+                   This gives 16.67% (40px) of visual headroom past 100% so over-pace
+                   fills extend clearly past the hashmark. #}
+                {% set _scale = 100.0 / 130.0 %}
+                {% set _fill_scaled = visual_fill * _scale %}
+                {% set _mark_pos = 100.0 * _scale %}
+                <div style="display:inline-block;width:240px;height:10px;
+                            background:var(--surface-alt);border-radius:5px;
+                            position:relative;vertical-align:middle">
+                  <div style="height:100%;width:{{ '%.2f' % _fill_scaled }}%;
+                              background:{{ fill_color }};border-radius:5px;
+                              min-width:2px;transition:width .2s"></div>
+                  {# 100%-of-budget hashmark — always visible solid black line,
+                     taller than the bar so it reads as a reference marker. #}
+                  <div title="100% of {{ 'prorated' if view == 'pace' else 'annual' }} budget"
+                       style="position:absolute;top:-6px;bottom:-6px;
+                              left:{{ '%.2f' % _mark_pos }}%;
+                              width:2px;background:#000;margin-left:-1px;
+                              z-index:2"></div>
+                  {# Annual view also shows where the calendar year has progressed to #}
+                  {% if view == 'annual' and r.annual_budget > 0 %}
+                    <div title="{{ '%.0f' % year_elapsed_pct }}% of year elapsed"
+                         style="position:absolute;top:-3px;bottom:-3px;
+                                left:{{ '%.2f' % (year_elapsed_pct * _scale) }}%;
+                                width:2px;background:var(--navy);opacity:.55"></div>
+                  {% endif %}
+                </div>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.status == 'nobudget' %}
+                <span class="text-3">—</span>
+              {% elif view == 'pace' %}
+                <div style="font-size:13px;font-weight:600;color:{{ variance_color(r.pace_variance) }}">
+                  {{ money_signed(r.pace_variance) }}
+                </div>
+                {% if r.pace_variance_pct is not none %}
+                  <div class="text-sm" style="font-size:11px;color:{{ variance_color(r.pace_variance) }}">
+                    {{ pct_signed(r.pace_variance_pct) }}
+                  </div>
+                {% endif %}
+              {% else %}
+                {% set remaining = r.annual_budget - r.actual %}
+                <div style="font-size:13px;font-weight:600;
+                            color:{% if remaining < 0 %}var(--red){% else %}var(--text-1){% endif %}">
+                  {{ money(remaining) }}
+                </div>
+                <div class="text-sm" style="font-size:11px;color:var(--text-3)">
+                  {{ '%.0f' % ((remaining / r.annual_budget) * 100) }}% left
+                </div>
+              {% endif %}
+            </td>
+          </tr>
+          {# ── L2 detail sub-rows (only for L1s with L2-level budgets) ── #}
+          {% for x in r.l2_detail %}
+          <tr class="avb-l2-row" data-parent="{{ rkey }}"
+              style="display:none;background:#FAFAF8">
+            <td style="padding-left:40px;color:var(--text-2);font-size:12.5px">{{ x.l2 }}</td>
+            <td style="font-size:12.5px;color:var(--text-2)">{{ money(x.actual) }}</td>
+            <td style="font-size:12.5px;color:var(--text-3)">
+              {% if x.status == 'nobudget' %}<span class="text-3">—</span>
+              {% else %}{{ money(x.prorated_budget if view == 'pace' else x.annual_budget) }}{% endif %}
+            </td>
+            <td style="font-size:12.5px;color:var(--text-3)">
+              {% if x.status == 'nobudget' or x.annual_pct is none %}<span class="text-3">—</span>
+              {% elif view == 'pace' and x.prorated_budget %}{{ pct(x.actual / x.prorated_budget * 100) }}
+              {% elif view != 'pace' %}{{ pct(x.annual_pct) }}
+              {% else %}<span class="text-3">—</span>{% endif %}
+            </td>
+            <td></td>
+            <td>
+              {% if x.status == 'nobudget' %}
+                <span class="text-3" style="font-size:11px">no L2 budget</span>
+              {% else %}
+                <span style="font-size:12px;font-weight:600;
+                             color:{{ variance_color(x.pace_variance) }}">
+                  {{ money_signed(x.pace_variance) }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% endfor %}
+        </tbody>
+        <tfoot>
+          {# Totals row — same column structure as body #}
+          {% if view == 'pace' %}
+            {% set t_fill = (totals.actual / totals.prorated_budget * 100) if totals.prorated_budget else 0 %}
+          {% else %}
+            {% set t_fill = (totals.actual / totals.annual_budget * 100) if totals.annual_budget else 0 %}
+          {% endif %}
+          {% set t_visual = t_fill if t_fill < 130 else 130 %}
+          {% if t_fill <= 100 %}
+            {% set t_color = 'var(--green)' %}
+          {% elif t_fill <= 125 %}
+            {% set t_color = AMBER %}
+          {% else %}
+            {% set t_color = 'var(--red)' %}
+          {% endif %}
+          {# Totals row mirrors body-row cell structure exactly — same alignment,
+             same padding, same fonts. Visual differentiation comes from a thick
+             top border + bold weight + alt background, not from extra padding. #}
+          <tr style="background:var(--surface-alt)">
+            <td style="font-weight:700;color:var(--text-1);border-top:2px solid var(--border)">
+              Total
+            </td>
+            <td style="font-weight:700;font-size:13px;color:var(--text-1);border-top:2px solid var(--border)">
+              {{ money(totals.actual) }}
+            </td>
+            <td style="font-weight:700;font-size:13px;color:var(--text-2);border-top:2px solid var(--border)">
+              {{ money(totals.prorated_budget if view == 'pace' else totals.annual_budget) }}
+            </td>
+            <td style="font-weight:700;font-size:13px;color:var(--text-2);border-top:2px solid var(--border)">
+              {{ pct(t_fill) }}
+            </td>
+            <td style="border-top:2px solid var(--border)">
+              {% set _scale_t = 100.0 / 130.0 %}
+              {% set _t_fill_scaled = t_visual * _scale_t %}
+              {% set _t_mark_pos = 100.0 * _scale_t %}
+              <div style="display:inline-block;width:240px;height:10px;
+                          background:var(--surface-alt);border-radius:5px;
+                          position:relative;vertical-align:middle">
+                <div style="height:100%;width:{{ '%.2f' % _t_fill_scaled }}%;
+                            background:{{ t_color }};border-radius:5px;min-width:2px"></div>
+                <div title="100% of {{ 'prorated' if view == 'pace' else 'annual' }} budget"
+                     style="position:absolute;top:-6px;bottom:-6px;
+                            left:{{ '%.2f' % _t_mark_pos }}%;
+                            width:2px;background:#000;margin-left:-1px;
+                            z-index:2"></div>
+                {% if view == 'annual' %}
+                  <div style="position:absolute;top:-3px;bottom:-3px;
+                              left:{{ '%.2f' % (year_elapsed_pct * _scale_t) }}%;
+                              width:2px;background:var(--navy);opacity:.55"></div>
+                {% endif %}
+              </div>
+            </td>
+            <td style="border-top:2px solid var(--border)">
+              {% if view == 'pace' %}
+                <div style="font-size:13px;font-weight:700;color:{{ variance_color(totals.pace_variance) }}">
+                  {{ money_signed(totals.pace_variance) }}
+                </div>
+                {% if totals.pace_variance_pct is not none %}
+                  <div class="text-sm" style="font-size:11px;color:{{ variance_color(totals.pace_variance) }}">
+                    {{ pct_signed(totals.pace_variance_pct) }}
+                  </div>
+                {% endif %}
+              {% else %}
+                {% set t_remaining = totals.annual_budget - totals.actual %}
+                <div style="font-size:13px;font-weight:700;
+                            color:{% if t_remaining < 0 %}var(--red){% else %}var(--text-1){% endif %}">
+                  {{ money(t_remaining) }}
+                </div>
+                <div class="text-sm" style="font-size:11px;color:var(--text-3)">
+                  {{ '%.0f' % ((t_remaining / totals.annual_budget) * 100) if totals.annual_budget else 0 }}% left
+                </div>
+              {% endif %}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  {# ── Footer caption + nudge ────────────────────────────────────── #}
+  <div class="text-sm text-3" style="margin-top:14px;line-height:1.6">
+    Budgets are flexible — these aren't strict targets, just a baseline expectation.
+    <a href="/settings/assumptions/budget-values"
+       style="color:var(--navy);text-decoration:none">
+      Edit Budget Values →
+    </a>
+  </div>
+
+  {% endif %}{# end empty-state else #}
+
+</div>
+
+<script>
+document.querySelectorAll('.avb-expand').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.key;
+    const rows = document.querySelectorAll(`.avb-l2-row[data-parent="${key}"]`);
+    const open = rows.length && rows[0].style.display !== 'none';
+    rows.forEach(r => r.style.display = open ? 'none' : '');
+    btn.textContent = open ? '▶' : '▼';
+  });
+});
+</script>
+
+{% endblock %}

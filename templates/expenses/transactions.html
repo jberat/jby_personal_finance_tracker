@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% from "_multi_select.html" import multi_select %}
+{% block title %}Expense Transactions — Personal Financial Tracker{% endblock %}
+{% block page_title %}Expenses — Transactions{% endblock %}
+
+{% macro l1l2_qs() -%}
+  {% for v in selected_l1s %}&l1s={{ v | urlencode }}{% endfor -%}
+  {% for v in selected_l2s %}&l2s={{ v | urlencode }}{% endfor -%}
+  {% for v in selected_accts %}&accts={{ v | urlencode }}{% endfor -%}
+{%- endmacro %}
+
+{# Year lives in the header; quarter buttons window on trx_date. #}
+{% block header_actions %}
+<button type="button" class="btn btn-ghost" onclick="__exportOpen()">Export</button>
+<select class="form-control" style="width:auto"
+        onchange="window.location='/expenses/transactions?year='+this.value+'{{ l1l2_qs() }}'">
+  {% for y in available_years %}
+    <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+  {% endfor %}
+</select>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filter bar -->
+<form method="GET" class="filter-bar" id="filter-form">
+  <input type="hidden" name="year" value="{{ year }}">
+  {% if qtr %}<input type="hidden" name="qtr" value="{{ qtr }}">{% endif %}
+
+  {{ multi_select('l1s', 'L1', l1s, selected_l1s) }}
+  {{ multi_select('l2s', 'L2', all_l2s, selected_l2s, l2_parent_map) }}
+
+  {{ multi_select('accts', 'Accounts', acct_options, selected_accts) }}
+
+  <input type="search" name="q" value="{{ q }}" placeholder="Search vendor, description…"
+         onkeydown="if(event.key==='Enter'){event.preventDefault();this.form.submit();}">
+  {% if no_receipt %}<input type="hidden" name="no_receipt" value="1">{% endif %}
+  {% if month %}<input type="hidden" name="month" value="{{ month }}">{% endif %}
+  <button class="btn btn-primary btn-sm" type="submit">Filter</button>
+
+  {# No-receipt quick-toggle #}
+  {% if no_receipt %}
+    <a href="?year={{ year }}&qtr={{ qtr }}&q={{ q | urlencode }}{{ l1l2_qs() }}"
+       class="btn btn-primary btn-sm"
+       title="Showing only transactions without a receipt — click to clear"
+       style="background:var(--red);border-color:var(--red)">
+      No receipt ✕
+    </a>
+  {% else %}
+    <a href="?year={{ year }}&qtr={{ qtr }}&q={{ q | urlencode }}{{ l1l2_qs() }}&no_receipt=1"
+       class="btn btn-ghost btn-sm"
+       title="Show only transactions without a receipt">
+      No receipt
+    </a>
+  {% endif %}
+
+  {% if selected_l1s or selected_l2s or selected_accts or q or no_receipt or month %}
+    <a href="/expenses/transactions?year={{ year }}{% if qtr %}&qtr={{ qtr }}{% endif %}" class="btn btn-ghost btn-sm">Clear</a>
+  {% endif %}
+
+  <span style="margin-left:auto" class="text-sm text-2">
+    {{ total_rows }} transaction{{ 's' if total_rows != 1 }}
+  </span>
+</form>
+
+<!-- Quarterly filter (period buttons) -->
+<div style="display:flex;gap:6px;margin-bottom:16px;align-items:center">
+  <span class="text-sm text-3" style="margin-right:4px">Period:</span>
+  <a href="/expenses/transactions?year={{ year }}&q={{ q | urlencode }}{{ l1l2_qs() }}"
+     class="btn btn-sm {% if not qtr %}btn-primary{% else %}btn-ghost{% endif %}">Full Year</a>
+  {% for q_label in ['Q1','Q2','Q3','Q4'] %}
+    <a href="/expenses/transactions?year={{ year }}&q={{ q | urlencode }}{{ l1l2_qs() }}&qtr={{ q_label }}"
+       class="btn btn-sm {% if qtr == q_label %}btn-primary{% else %}btn-ghost{% endif %}">{{ q_label }}</a>
+  {% endfor %}
+</div>
+
+{% if selected_l1s or selected_l2s or month %}
+<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+            margin:8px 0 14px;font-size:12px">
+  <span class="text-3">Filtering by:</span>
+  {% for v in selected_l1s %}
+    <span class="pill" style="background:var(--navy-light);color:var(--navy);
+          padding:3px 9px;border-radius:11px;font-size:11px">L1: {{ v }}</span>
+  {% endfor %}
+  {% for v in selected_l2s %}
+    <span class="pill" style="background:var(--navy-light);color:var(--navy);
+          padding:3px 9px;border-radius:11px;font-size:11px">L2: {{ v }}</span>
+  {% endfor %}
+  {% if month %}
+    <span class="pill" style="background:var(--navy-light);color:var(--navy);
+          padding:3px 9px;border-radius:11px;font-size:11px">Month: {{ month }}</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if link %}
+<div class="alert info" style="margin-bottom:16px">
+  <span>Showing linked transactions only</span>
+  <a href="/expenses/transactions?year={{ year }}" style="margin-left:auto;color:var(--blue);font-weight:500">Clear filter ✕</a>
+</div>
+{% endif %}
+
+{% if rows %}
+<div class="table-wrap">
+  <table class="trx-table-uniform" style="width:100%">
+    <thead>
+      <tr>
+        <th style="width:100px">TRX Date</th>
+        <th style="width:100px">Post Date</th>
+        <th style="width:100px">Stmt Date</th>
+        <th style="width:200px">Vendor</th>
+        <th style="width:180px">Account</th>
+        <th style="width:110px">Type</th>
+        <th style="width:220px">Category</th>
+        <th style="min-width:70px">Note</th>
+        <th style="width:20px"></th>
+        <th style="width:20px"></th>
+        <th style="width:92px">Amount</th>
+        <th style="width:16px"></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in rows %}
+    <tr id="trx-{{ t.id }}" class="trx-row" data-href="/transactions/{{ t.id }}" style="cursor:pointer">
+
+      <!-- TRX Date -->
+      <td class="center">
+        <span class="tx-date"
+              data-id="{{ t.id }}" data-field="trx_date"
+              data-value="{{ t.trx_date or '' }}">
+          {{ t.trx_date or '—' }}
+        </span>
+      </td>
+
+      <!-- Post Date -->
+      <td class="center">
+        <span class="tx-date"
+              data-id="{{ t.id }}" data-field="post_date"
+              data-value="{{ t.post_date or '' }}">
+          {{ t.post_date or '—' }}
+        </span>
+      </td>
+
+      <!-- Stmt Date -->
+      <td class="center">
+        <span class="tx-date"
+              data-id="{{ t.id }}" data-field="statement_date"
+              data-value="{{ t.statement_date or '' }}">
+          {{ t.statement_date or '—' }}
+        </span>
+      </td>
+
+      <!-- Vendor -->
+      <td>
+        <input class="tx-input" type="text"
+               data-id="{{ t.id }}" data-field="vendor"
+               value="{{ t.vendor or t.raw_description[:44] }}"
+               style="font-weight:500;color:var(--navy)">
+        {% if t.vendor and t.vendor != t.raw_description %}
+          <div style="font-size:11px;color:var(--text-3);padding:0 6px;margin-top:1px"
+               title="{{ t.raw_description }}">
+            {{ t.raw_description[:20] }}{% if t.raw_description|length > 20 %}…{% endif %}
+          </div>
+        {% endif %}
+      </td>
+
+      <!-- Account -->
+      <td>
+        <select class="tx-select" data-id="{{ t.id }}" data-field="account_id">
+          {# Deactivated accounts are hidden from pickers, but history must
+             keep rendering: if this row's account isn't in the active list,
+             pin it as the selected option. #}
+          {% if not (accounts | selectattr('id', 'equalto', t.account_id) | list) %}
+            <option value="{{ t.account_id }}" selected>{{ t.account_name }} (deactivated)</option>
+          {% endif %}
+          {% for a in accounts %}
+            <option value="{{ a.id }}" {% if a.id == t.account_id %}selected{% endif %}>
+              {{ a.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </td>
+
+      <!-- Type -->
+      <td>
+        <select class="tx-select" data-id="{{ t.id }}" data-field="trx_type">
+          {# 'Transfer' and 'CC Payment' are both trx_type='transfer' under
+             the hood, split by L1 = 'Credit Card Payment' (display fork). #}
+          {% set is_ccp = t.l1_category == 'Credit Card Payment' %}
+          <option value="expense"  {% if t.trx_type == 'expense'  %}selected{% endif %}>Expense</option>
+          <option value="income"   {% if t.trx_type == 'income'   %}selected{% endif %}>Income</option>
+          <option value="transfer" {% if t.trx_type == 'transfer' and not is_ccp %}selected{% endif %}>Transfer</option>
+          <option value="cc_payment" {% if t.trx_type == 'transfer' and is_ccp %}selected{% endif %}>CC Payment</option>
+        </select>
+      </td>
+
+      <!-- Category -->
+      <td>
+        <span class="tx-cat"
+              data-id="{{ t.id }}"
+              data-trxtype="expense"
+              data-l1="{{ t.l1_category or '' }}"
+              data-l2="{{ t.l2_category or '' }}">
+          {% if t.l1_category %}
+            {{ t.l1_category }}{% if t.l2_category %} / {{ t.l2_category }}{% endif %}
+          {% else %}
+            <span style="color:var(--text-3)">—</span>
+          {% endif %}
+        </span>
+      </td>
+
+      <!-- Note -->
+      <td>
+        <input class="tx-input" type="text"
+               data-id="{{ t.id }}" data-field="note"
+               value="{{ t.note or '' }}"
+               placeholder="—"
+               style="color:var(--text-2)">
+      </td>
+
+      <!-- Receipt icon — clickable preview when a receipt is attached -->
+      <td style="width:20px;padding:0 4px">
+        {% if t.receipt_path %}
+          <a href="/api/receipts/preview?path={{ t.receipt_path | urlencode }}"
+             target="_blank" onclick="event.stopPropagation()" title="View receipt">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 style="color:var(--navy);opacity:0.6;display:block;margin:0 auto">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </a>
+        {% endif %}
+      </td>
+
+      <!-- Link icon — shown for any trx in a link relationship -->
+      <td style="width:20px;padding:0 4px">
+        {% if t.has_link %}
+          <a href="/expenses/transactions?link={{ t.id }}"
+             onclick="event.stopPropagation()" title="Show linked transactions">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                 style="color:var(--navy);opacity:0.6;display:block;margin:0 auto">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+          </a>
+        {% endif %}
+      </td>
+
+      <!-- Amount — click to edit. Expense trx: positive (spend) → red;
+           negative (contra-expense / refund) → green. -->
+      <td>
+        <span class="tx-amount"
+              data-id="{{ t.id }}"
+              data-value="{{ t.amount }}"
+              data-color-expense="var(--red)"
+              style="color:{% if t.amount < 0 %}var(--green){% else %}var(--red){% endif %}">
+          {{ t.amount | amt }}
+        </span>
+      </td>
+
+      <td style="width:16px;color:var(--text-3);font-size:16px">›</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if total_rows > per %}
+<div class="pagination">
+  {% set total_pages = ((total_rows - 1) // per) + 1 %}
+  {% if page > 1 %}
+    <a href="?year={{ year }}&l1={{ l1 }}&acct={{ acct }}&q={{ q }}&page={{ page - 1 }}">‹</a>
+  {% endif %}
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == page %}
+      <span class="current">{{ p }}</span>
+    {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+      <a href="?year={{ year }}&l1={{ l1 }}&acct={{ acct }}&q={{ q }}&page={{ p }}">{{ p }}</a>
+    {% elif p == page - 3 or p == page + 3 %}
+      <span>…</span>
+    {% endif %}
+  {% endfor %}
+  {% if page < total_pages %}
+    <a href="?year={{ year }}&l1={{ l1 }}&acct={{ acct }}&q={{ q }}&page={{ page + 1 }}">›</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <div class="icon">◎</div>
+  No transactions found.
+  {% if not l1 and not acct and not q %}
+    <br><a href="/import" style="color:var(--navy)">Import a CSV →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% from "_export_modal.html" import export_modal %}
+{{ export_modal('/export/expenses-transactions.xlsx', 'Expenses — Transactions',
+                year=year, basis_default='trx',
+                l1_options=l1s, l2_options=all_l2s, l2_parent_map=l2_parent_map,
+                selected_l1s=selected_l1s, selected_l2s=selected_l2s) }}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CAT_MAP = {{ cat_map | tojson }};
+</script>
+{% include '_trx_table_js.html' %}
+{% endblock %}

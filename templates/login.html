@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — Personal Financial Tracker</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="logo">
+      <div class="mark">Personal Finance</div>
+      <div class="title">Personal Financial Tracker</div>
+    </div>
+
+    {% if error %}
+      <div class="login-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST">
+      <div class="form-group" style="margin-bottom:20px">
+        <label class="form-label">Password</label>
+        <input class="form-control" type="password" name="password"
+               autofocus autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary w-full" type="submit"
+              style="justify-content:center">
+        Sign in
+      </button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

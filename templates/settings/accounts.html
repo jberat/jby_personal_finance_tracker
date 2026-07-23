@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Accounts — Personal Financial Tracker{% endblock %}
+{% block page_title %}Accounts{% endblock %}
+
+{% block content %}
+
+<div style="display:grid;grid-template-columns:380px 1fr;gap:24px;align-items:start;max-width:1200px">
+
+  <!-- Add account -->
+  <div class="card">
+    <div class="card-header"><h2>Add an Account</h2></div>
+    <div class="card-body">
+      <form method="POST">
+        <input type="hidden" name="action" value="add">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input class="form-control" type="text" name="name" required
+                 placeholder="e.g. My Sapphire Card" maxlength="80">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <select class="form-control" name="type" id="acct-type-select" required
+                  onchange="toggleCcFields()">
+            {% for key, label in account_types %}
+              <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <div class="text-xs text-3 mt-1" style="line-height:1.6">
+            Checking, credit card, and digital wallet accounts get CSV importers
+            (Chase checking, Chase CC, and Venmo formats respectively) on the
+            Import page. <strong>Other</strong> is manual-entry only — its
+            transactions are added by hand via Tools → Import → Manual Entry.
+          </div>
+        </div>
+        {# Credit-card billing days — shown (and close day required) only
+           when type=credit_card. Close day drives statement-date assignment
+           on import and the Reconcile Card wizard. #}
+        <div id="cc-billing-fields" style="display:none">
+          <div class="form-group">
+            <label class="form-label">Statement close day
+              <span style="color:var(--red)">*</span>
+            </label>
+            <input class="form-control" type="number" name="stmt_close_day"
+                   id="stmt-close-day-input" min="1" max="31"
+                   placeholder="e.g. 25">
+            <div class="text-xs text-3 mt-1" style="line-height:1.6">
+              Same day each month; pick the day your statement cycle closes
+              (it's on every statement). For days 29–31, months without that
+              day close on the month's last day.
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Payment due day
+              <span class="text-3" style="font-weight:400">(optional)</span>
+            </label>
+            <input class="form-control" type="number" name="pay_due_day"
+                   min="1" max="31" placeholder="e.g. 22">
+            <div class="text-xs text-3 mt-1">
+              The day of month your payment is due — used to estimate
+              payment dates on imported charges.
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Last 4 / account number
+            <span class="text-3" style="font-weight:400">(optional, display only)</span>
+          </label>
+          <input class="form-control" type="text" name="account_num"
+                 placeholder="e.g. 1234" maxlength="20">
+          <div class="text-xs text-3 mt-1">
+            Shown next to the name in dropdowns so twin accounts are easy to
+            tell apart. Never sent anywhere.
+          </div>
+        </div>
+        <button class="btn btn-primary w-full" type="submit"
+                style="justify-content:center">Add Account</button>
+      </form>
+      <script>
+        function toggleCcFields() {
+          var isCc = document.getElementById('acct-type-select').value === 'credit_card';
+          document.getElementById('cc-billing-fields').style.display = isCc ? '' : 'none';
+          // required only while visible, so non-CC adds submit cleanly
+          document.getElementById('stmt-close-day-input').required = isCc;
+        }
+        toggleCcFields();
+      </script>
+    </div>
+  </div>
+
+  <!-- Accounts list -->
+  <div class="card">
+    <div class="card-header"><h2>Your Accounts</h2></div>
+    <div class="table-wrap" style="border:none;border-radius:0;box-shadow:none">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Number</th>
+            <th title="Credit cards only: statement close day / payment due day">Billing days</th>
+            <th class="right">Transactions</th>
+            <th>Status</th>
+            <th class="right"></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for a in accounts %}
+          <tr {% if not a.active %}style="opacity:0.55"{% endif %}>
+            <td>
+              <form method="POST" id="acct-edit-{{ a.id }}"
+                    style="display:flex;gap:6px;align-items:center">
+                <input type="hidden" name="action" value="rename">
+                <input type="hidden" name="account_id" value="{{ a.id }}">
+                <input class="form-control" type="text" name="name"
+                       value="{{ a.name }}" required maxlength="80"
+                       style="width:180px;font-size:13px">
+                <button class="btn btn-ghost btn-sm" type="submit"
+                        title="{% if a.type == 'credit_card' %}Save name + billing days{% else %}Rename this account{% endif %}">
+                  {% if a.type == 'credit_card' %}Save{% else %}Rename{% endif %}
+                </button>
+              </form>
+            </td>
+            <td class="dim">
+              {% if a.type == 'checking' %}Checking
+              {% elif a.type == 'credit_card' %}Credit card
+              {% elif a.type == 'digital_wallet' %}Digital wallet
+              {% elif a.type == 'investment' %}Investment
+              {% else %}Other{% endif %}
+            </td>
+            <td class="mono dim">{{ a.account_num or '—' }}</td>
+            <td>
+              {% if a.type == 'credit_card' %}
+                {# Editable billing days — submit through the row's edit
+                   form. Close day empty = not set yet: the wizard and
+                   statement-date assignment fall back to post dates until
+                   it's filled in. #}
+                <span style="display:inline-flex;gap:4px;align-items:center;font-size:12px">
+                  <input class="form-control" type="number" min="1" max="31"
+                         name="stmt_close_day" form="acct-edit-{{ a.id }}"
+                         value="{{ a.stmt_close_day or '' }}"
+                         placeholder="close"
+                         title="Statement close day (1–31) — the day your statement cycle closes each month"
+                         style="width:58px;font-size:12px">
+                  <span class="text-3">/</span>
+                  <input class="form-control" type="number" min="1" max="31"
+                         name="pay_due_day" form="acct-edit-{{ a.id }}"
+                         value="{{ a.pay_due_day or '' }}"
+                         placeholder="due"
+                         title="Payment due day (1–31, optional)"
+                         style="width:58px;font-size:12px">
+                </span>
+                {% if not a.stmt_close_day %}
+                  <div class="text-xs" style="color:var(--amber, #b45309)">
+                    Set the close day — Reconcile Card needs it
+                  </div>
+                {% endif %}
+              {% else %}
+                <span class="text-3">—</span>
+              {% endif %}
+            </td>
+            <td class="right dim">{{ a.trx_count }}</td>
+            <td>
+              {% if a.active %}
+                <span class="text-xs" style="color:var(--green);font-weight:600">Active</span>
+              {% else %}
+                <span class="text-xs text-3">Deactivated</span>
+              {% endif %}
+            </td>
+            <td class="right">
+              <form method="POST" style="display:inline">
+                <input type="hidden" name="action" value="toggle">
+                <input type="hidden" name="account_id" value="{{ a.id }}">
+                {% if a.active %}
+                  <button class="btn btn-ghost btn-sm" type="submit"
+                          title="Hide from the import dropdown and new-transaction pickers. History stays.">
+                    Deactivate
+                  </button>
+                {% else %}
+                  <button class="btn btn-ghost btn-sm" type="submit"
+                          title="Show in the import dropdown and pickers again.">
+                    Reactivate
+                  </button>
+                {% endif %}
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-body" style="border-top:1px solid var(--border)">
+      <div class="text-xs text-3" style="line-height:1.7;margin-bottom:8px">
+        <strong>Billing days (credit cards).</strong> The first number is the
+        <strong>statement close day</strong> — the day of month the card's
+        statement cycle closes (same day every month; days 29–31 clamp to the
+        month's last day when needed). It drives statement-date assignment on
+        CSV import and the Reconcile Card wizard. The second is the optional
+        <strong>payment due day</strong>. Edit either and click Save.
+      </div>
+      <div class="text-xs text-3" style="line-height:1.7">
+        <strong>Why is there no Delete?</strong> Transactions reference their
+        account forever — deleting an account would orphan its history.
+        <strong>Deactivate</strong> instead: the account disappears from the
+        import dropdown and new-transaction pickers, but every transaction it
+        already holds keeps rendering everywhere. Reactivate any time.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

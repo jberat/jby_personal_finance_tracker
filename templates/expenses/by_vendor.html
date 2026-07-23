@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}By Vendor — Personal Financial Tracker{% endblock %}
+{% block page_title %}Expenses — By Vendor{% endblock %}
+
+{% block content %}
+
+<div class="filter-bar">
+  <select onchange="window.location='/expenses/by-vendor?year='+this.value+'&l1={{ l1 }}'">
+    {% for y in available_years %}
+      <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
+  <select onchange="window.location='/expenses/by-vendor?year={{ year }}&l1='+this.value">
+    <option value="">All Categories</option>
+    {% for l in l1s %}
+      <option value="{{ l }}" {% if l == l1 %}selected{% endif %}>{{ l }}</option>
+    {% endfor %}
+  </select>
+  <span style="margin-left:auto" class="text-sm text-2">
+    {{ total_rows }} vendor{{ 's' if total_rows != 1 }}
+  </span>
+</div>
+
+{% if vendors %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Vendor</th>
+        <th>Category</th>
+        <th class="right">Transactions</th>
+        <th class="right">Last Date</th>
+        <th class="right">Total Spent</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for v in vendors %}
+    <tr>
+      <td>
+        <a href="/expenses/transactions?year={{ year }}&q={{ v.vendor_name | urlencode }}"
+           style="color:var(--navy);font-weight:500">{{ v.vendor_name }}</a>
+      </td>
+      <td class="dim">{{ v.l1_category or '—' }}</td>
+      <td class="right">{{ v.trx_count }}</td>
+      <td class="right mono dim">{{ v.last_date }}</td>
+      <td class="right"><strong>${{ "{:,.2f}".format(v.total) }}</strong></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if total_rows > per %}
+<div class="pagination">
+  {% set total_pages = ((total_rows - 1) // per) + 1 %}
+  {% if page > 1 %}
+    <a href="?year={{ year }}&l1={{ l1 }}&page={{ page-1 }}">‹</a>
+  {% endif %}
+  {% for p in range(1, total_pages+1) %}
+    {% if p == page %}<span class="current">{{ p }}</span>
+    {% elif p == 1 or p == total_pages or (p >= page-2 and p <= page+2) %}
+      <a href="?year={{ year }}&l1={{ l1 }}&page={{ p }}">{{ p }}</a>
+    {% elif p == page-3 or p == page+3 %}<span>…</span>{% endif %}
+  {% endfor %}
+  {% if page < total_pages %}
+    <a href="?year={{ year }}&l1={{ l1 }}&page={{ page+1 }}">›</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <div class="icon">◎</div>
+  No vendor data yet.
+</div>
+{% endif %}
+
+{% endblock %}

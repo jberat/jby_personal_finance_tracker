@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Manual Entry — Personal Financial Tracker{% endblock %}
+{% block page_title %}Import — Manual Entry{% endblock %}
+
+{% block content %}
+
+<div style="display:grid;grid-template-columns:560px 320px;gap:20px;align-items:start">
+  <div class="card">
+    <div class="card-header">
+      <h2>Add Transaction</h2>
+      <span class="text-sm text-2">For transactions not captured in a CSV import</span>
+    </div>
+    <div class="card-body">
+      <form method="POST" id="manual-form">
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+          <div class="form-group">
+            <label class="form-label">Date <span style="color:var(--red)">*</span></label>
+            <input class="form-control" type="date" name="trx_date" required
+                   value="{{ today }}">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Amount <span style="color:var(--red)">*</span></label>
+            <input class="form-control" type="number" name="amount"
+                   step="0.01" placeholder="0.00" required>
+          </div>
+
+          <div class="form-group" style="grid-column:span 2">
+            <label class="form-label">Account <span style="color:var(--red)">*</span></label>
+            <select class="form-control" name="account_id" required>
+              {% for a in accounts %}
+                <option value="{{ a.id }}">{{ a.name }} ({{ a.account_num or a.type }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group" style="grid-column:span 2">
+            <label class="form-label">Vendor <span style="color:var(--red)">*</span></label>
+            <input class="form-control" type="text" name="vendor"
+                   placeholder="e.g. Neighborhood Cafe – dinner" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Type</label>
+            <select class="form-control" name="trx_type" id="m-type"
+                    onchange="onTypeChange()">
+              {# 'Transfer' and 'CC Payment' both store trx_type='transfer'
+                 (the server maps cc_payment); the L1 'Credit Card Payment'
+                 carries the distinction. #}
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+              <option value="transfer">Transfer</option>
+              <option value="cc_payment">CC Payment</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Category (L1)</label>
+            <select class="form-control" name="l1_category" id="m-l1"
+                    onchange="onL1Change()">
+              <option value="">— None —</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Category (L2)</label>
+            <select class="form-control" name="l2_category" id="m-l2">
+              <option value="">— None —</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="grid-column:span 2">
+            <label class="form-label">Note</label>
+            <input class="form-control" type="text" name="note"
+                   placeholder="Optional note…">
+          </div>
+
+        </div>
+
+        <div class="flex gap-2" style="margin-top:8px">
+          <button class="btn btn-primary" type="submit">Add Transaction</button>
+          <button class="btn btn-ghost" type="reset">Clear</button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  {# ── Rules / sign convention reference ───────────────────────────── #}
+  <div class="card">
+    <div class="card-header"><h2>Rules</h2></div>
+    <div class="card-body" style="font-size:13px;line-height:1.55;color:var(--text)">
+      <div style="font-weight:600;color:var(--navy);margin-bottom:6px">Sign convention</div>
+      <table style="width:100%;font-size:12px;margin-bottom:12px">
+        <thead>
+          <tr style="text-align:left;color:var(--text-2);font-weight:600">
+            <th style="padding:4px 6px">Type</th>
+            <th style="padding:4px 6px">Sign</th>
+            <th style="padding:4px 6px">Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:4px 6px">expense</td><td style="padding:4px 6px">+</td><td style="padding:4px 6px">Money out (purchase)</td></tr>
+          <tr><td style="padding:4px 6px">expense</td><td style="padding:4px 6px">−</td><td style="padding:4px 6px">Refund / contra-expense (credit)</td></tr>
+          <tr><td style="padding:4px 6px">income</td><td style="padding:4px 6px">+</td><td style="padding:4px 6px">Money in (true income)</td></tr>
+          <tr><td style="padding:4px 6px">income</td><td style="padding:4px 6px">−</td><td style="padding:4px 6px">Contra-income (rare — e.g. clawback)</td></tr>
+          <tr><td style="padding:4px 6px">transfer</td><td style="padding:4px 6px">+/−</td><td style="padding:4px 6px">Inter-account move</td></tr>
+        </tbody>
+      </table>
+
+      <div style="font-weight:600;color:var(--navy);margin:14px 0 6px">Other notes</div>
+      <ul style="margin:0;padding-left:18px;color:var(--text-2)">
+        <li style="margin-bottom:5px">Manual entries land directly in <strong>active</strong> trxs (no review queue).</li>
+        <li style="margin-bottom:5px">All four date fields are populated from the single Date input — checking / digital wallet collapse to the same date; a CC selection auto-derives statement + payment via billing cycle.</li>
+        <li>Vendor is the only required text field. Notes are optional context.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CAT_MAP = {{ cat_map | tojson }};
+
+// CAT_MAP keys follow the backend convention: "<trx_type>:<L1>".
+
+// 'cc_payment' is DISPLAY-forked over transfer — same category tree; the
+// L1 filter splits the lists (CC Payment sees only the card L1, Transfer
+// sees everything but it).
+function catTreeType(type) { return type === 'cc_payment' ? 'transfer' : type; }
+
+function onTypeChange() {
+  const type  = document.getElementById('m-type').value;
+  const l1Sel = document.getElementById('m-l1');
+  l1Sel.innerHTML = '<option value="">— None —</option>';
+  const prefix = catTreeType(type) + ':';
+  Object.keys(CAT_MAP).filter(k => k.startsWith(prefix)).forEach(key => {
+    const l1 = key.replace(prefix,'');
+    if (type === 'cc_payment' && l1 !== 'Credit Card Payment') return;
+    if (type === 'transfer'   && l1 === 'Credit Card Payment') return;
+    const sel = (type === 'cc_payment') ? ' selected' : '';
+    l1Sel.insertAdjacentHTML('beforeend', `<option value="${l1}"${sel}>${l1}</option>`);
+  });
+  document.getElementById('m-l2').innerHTML = '<option value="">— None —</option>';
+  if (type === 'cc_payment') onL1Change();
+}
+
+function onL1Change() {
+  const type  = document.getElementById('m-type').value;
+  const l1    = document.getElementById('m-l1').value;
+  const l2Sel = document.getElementById('m-l2');
+  const l2s   = CAT_MAP[`${catTreeType(type)}:${l1}`] || [];
+  l2Sel.innerHTML = '<option value="">— None —</option>' +
+    l2s.map(v => `<option value="${v}">${v}</option>`).join('');
+}
+
+// Init on load
+onTypeChange();
+</script>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Assumptions — Personal Financial Tracker{% endblock %}
+{% block page_title %}Assumptions{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div>
+
+  <div class="text-sm text-2" style="margin-bottom:24px;line-height:1.6">
+    Documented assumptions powering the tool's calculations and modeling.
+    Each topic below opens its own page where the relevant variables and
+    rationale are surfaced.
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="padding:0">
+      <table style="width:100%">
+        <tbody>
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:14px 16px;width:280px;vertical-align:top">
+              <div style="font-weight:600;color:var(--text-1)">
+                <a href="/settings/assumptions/exchange-rates"
+                   style="color:var(--navy);text-decoration:none">
+                  Exchange Rates →
+                </a>
+              </div>
+              <div class="text-sm text-3" style="margin-top:4px">
+                FX rates used by the receipts matcher.
+              </div>
+            </td>
+            <td style="padding:14px 16px;color:var(--text-2);vertical-align:top">
+              Units per USD, per currency. The receipt scanner matches
+              foreign-currency receipts within ±10% of the rate set here.
+            </td>
+            <td style="padding:14px 16px;text-align:right;vertical-align:top;white-space:nowrap">
+              <a href="/settings/assumptions/exchange-rates"
+                 class="btn btn-ghost btn-sm" style="font-size:12px">
+                Edit →
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 16px;width:280px;vertical-align:top">
+              <div style="font-weight:600;color:var(--text-1)">
+                <a href="/settings/assumptions/budget-values"
+                   style="color:var(--navy);text-decoration:none">
+                  Budget Values →
+                </a>
+              </div>
+              <div class="text-sm text-3" style="margin-top:4px">
+                L1-level budget targets used by Actuals vs. Budget.
+              </div>
+            </td>
+            <td style="padding:14px 16px;color:var(--text-2);vertical-align:top">
+              Per-L1 annual budget values for your expenses and income.
+              Edits save automatically. Consumed by the Actuals vs. Budget
+              view to score each category against plan.
+            </td>
+            <td style="padding:14px 16px;text-align:right;vertical-align:top;white-space:nowrap">
+              <a href="/settings/assumptions/budget-values"
+                 class="btn btn-ghost btn-sm" style="font-size:12px">
+                Edit →
+              </a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

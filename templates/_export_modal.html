@@ -1,0 +1,184 @@
+{# ── Export popup (shared shell, per-report tailored controls) ───────────
+   Built like the ledger note popup. NOT a <form> on purpose: the
+   multi-select component's Apply submits its closest('form'), which would
+   trigger a premature download — instead the Download button collects
+   every control into a query string and navigates to the export URL
+   (the attachment downloads without leaving the page).
+
+   Args (pass only what the report needs — popups are tailored):
+     action            export endpoint, e.g. '/export/expenses-overview.xlsx'
+     heading           popup title, e.g. 'Expenses — Overview'
+     year              current page year → prefills the date range
+     show_dates        date range (default True; investments overview = False)
+     basis_default     'trx'|'post'|'statement'|'payment' → renders the
+                       date-basis radios with this default; None = no selector
+     show_level        L1/L2 election + include-$0 checkbox (overviews)
+     show_view         Simplified/Detailed radios (income statement)
+     view              current view for the default
+     l1_options/l2_options/l2_parent_map   L1+L2 multiselects (trx pages)
+     selected_l1s/selected_l2s             page's current selections → defaults
+     l2_single_options/l2_single           single L2 select (distributions trx)
+     acct_options/selected_accts           accounts multiselect (investments trx)
+     kind_options/selected_kinds           event-kind multiselect (investments trx)
+─────────────────────────────────────────────────────────────────────────#}
+{% from "_multi_select.html" import multi_select %}
+
+{% macro export_modal(action, heading, year=None, show_dates=True,
+                      basis_default=None, show_level=False,
+                      show_view=False, view='simplified',
+                      l1_options=None, l2_options=None, l2_parent_map=None,
+                      selected_l1s=None, selected_l2s=None,
+                      l2_single_options=None, l2_single=None,
+                      acct_options=None, selected_accts=None,
+                      kind_options=None, selected_kinds=None) %}
+<div id="export-modal" class="exm" hidden>
+  <div class="exm-box">
+    <div class="exm-head">
+      <span>Export — {{ heading }}</span>
+      <button type="button" class="exm-x" id="exm-close" aria-label="Close">×</button>
+    </div>
+    <div class="exm-body">
+      {% if show_dates %}
+      <div class="exm-row">
+        <label class="exm-label">From</label>
+        <input type="date" id="exm-from" class="form-control"
+               value="{% if year %}{{ year }}-01-01{% endif %}" style="width:auto">
+        <label class="exm-label">To</label>
+        <input type="date" id="exm-to" class="form-control"
+               value="{% if year %}{{ year }}-12-31{% endif %}" style="width:auto">
+      </div>
+      <div class="exm-hint">Clear both dates to export all time.</div>
+      {% endif %}
+
+      {% if basis_default %}
+      <div class="exm-row">
+        <label class="exm-label">Filter on</label>
+        {% for v, lbl in [('trx','Trx date'), ('post','Post date'),
+                          ('statement','Statement date'), ('payment','Payment date')] %}
+          <label class="exm-radio">
+            <input type="radio" name="exm-basis" value="{{ v }}"
+                   {% if v == basis_default %}checked{% endif %}> {{ lbl }}
+          </label>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if show_level %}
+      <div class="exm-row">
+        <label class="exm-label">Categories</label>
+        <label class="exm-radio">
+          <input type="radio" name="exm-level" value="l1" checked> L1 (rolled up)
+        </label>
+        <label class="exm-radio">
+          <input type="radio" name="exm-level" value="l2"> L2 (full detail)
+        </label>
+        <label class="exm-radio" style="margin-left:12px">
+          <input type="checkbox" id="exm-zero"> Include $0 categories
+        </label>
+      </div>
+      {% endif %}
+
+      {% if show_view %}
+      <div class="exm-row">
+        <label class="exm-label">Detail</label>
+        <label class="exm-radio">
+          <input type="radio" name="exm-view" value="simplified"
+                 {% if view != 'detailed' %}checked{% endif %}> Simplified
+        </label>
+        <label class="exm-radio">
+          <input type="radio" name="exm-view" value="detailed"
+                 {% if view == 'detailed' %}checked{% endif %}> Detailed
+        </label>
+      </div>
+      {% endif %}
+
+      {% if l1_options or l2_options or acct_options or kind_options or l2_single_options %}
+      <div class="exm-row" style="flex-wrap:wrap">
+        {% if l1_options %}
+          {{ multi_select('l1s', 'L1 Categories', l1_options, selected_l1s or []) }}
+        {% endif %}
+        {% if l2_options %}
+          {{ multi_select('l2s', 'L2 Categories', l2_options, selected_l2s or [], parent_map=l2_parent_map) }}
+        {% endif %}
+        {% if acct_options %}
+          {{ multi_select('accts', 'Accounts', acct_options, selected_accts or []) }}
+        {% endif %}
+        {% if kind_options %}
+          {{ multi_select('kinds', 'Types', kind_options, selected_kinds or []) }}
+        {% endif %}
+        {% if l2_single_options %}
+          <select id="exm-l2single" class="form-control" style="width:auto">
+            <option value="">All L2s</option>
+            {% for o in l2_single_options %}
+              <option value="{{ o }}" {% if o == l2_single %}selected{% endif %}>{{ o }}</option>
+            {% endfor %}
+          </select>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="exm-foot">
+      <span class="exm-hint" style="margin-right:auto">Downloads a formatted .xlsx</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="exm-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="exm-download">Download .xlsx</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.exm{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;
+  justify-content:center;z-index:1000}
+.exm[hidden]{display:none}
+.exm-box{background:var(--surface,#fff);border:1px solid var(--border-mid,#ddd);border-radius:10px;
+  width:min(620px,94vw);padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.exm-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;
+  font-weight:600;color:var(--navy)}
+.exm-x{border:none;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:var(--text-3)}
+.exm-body{display:flex;flex-direction:column;gap:10px}
+.exm-row{display:flex;align-items:center;gap:8px}
+.exm-label{font-size:12px;color:var(--text-2);min-width:70px;font-weight:600}
+.exm-radio{font-size:13px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.exm-hint{font-size:11.5px;color:var(--text-3)}
+.exm-foot{display:flex;align-items:center;gap:8px;margin-top:14px}
+/* Multi-select panels open DOWNWARD inside the modal box */
+.exm .ms-wrap{position:relative}
+</style>
+
+<script>
+function __exportOpen(){ document.getElementById('export-modal').hidden = false; }
+(function(){
+  const m = document.getElementById('export-modal');
+  if (!m) return;
+  const close = () => { m.hidden = true; };
+  document.getElementById('exm-close').addEventListener('click', close);
+  document.getElementById('exm-cancel').addEventListener('click', close);
+  m.addEventListener('click', e => { if (e.target === m) close(); });
+  document.addEventListener('keydown', e => {
+    if (!m.hidden && e.key === 'Escape') close();
+  });
+  document.getElementById('exm-download').addEventListener('click', () => {
+    const p = new URLSearchParams();
+    const f = document.getElementById('exm-from'),
+          t = document.getElementById('exm-to');
+    if (f && f.value) p.set('date_from', f.value);
+    if (t && t.value) p.set('date_to', t.value);
+    const basis = m.querySelector('input[name=exm-basis]:checked');
+    if (basis) p.set('date_field', basis.value);
+    const lvl = m.querySelector('input[name=exm-level]:checked');
+    if (lvl) {
+      p.set('level', lvl.value);
+      const iz = document.getElementById('exm-zero');
+      p.set('include_zero', (iz && iz.checked) ? '1' : '0');
+    }
+    const vw = m.querySelector('input[name=exm-view]:checked');
+    if (vw) p.set('view', vw.value);
+    const l2s = document.getElementById('exm-l2single');
+    if (l2s && l2s.value) p.set('l2', l2s.value);
+    m.querySelectorAll('.ms-wrap input[type=checkbox]:checked')
+      .forEach(cb => p.append(cb.name, cb.value));
+    close();
+    window.location = '{{ action }}' + (p.toString() ? ('?' + p.toString()) : '');
+  });
+})();
+</script>
+{% endmacro %}

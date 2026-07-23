@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}{{ a.name }} — Investments — Personal Financial Tracker{% endblock %}
+{% block page_title %}Investments — {{ a.name }}{% if not a.active %} (closed){% endif %}{% endblock %}
+{% block back_link %}
+<a href="/investments/overview" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:18px">
+  <div class="stat-card"><div class="label">Current value</div>
+    <div class="value" style="color:var(--navy)">${{ "{:,.2f}".format(s.value) }}</div>
+    <div class="sub">{{ s.n_lots }} open lot{{ 's' if s.n_lots != 1 }}
+      {% if s.last_snap %} · last snapshot {{ s.last_snap.event_date }}{% endif %}</div></div>
+  <div class="stat-card"><div class="label">Principal in account</div>
+    <div class="value">${{ "{:,.2f}".format(s.principal) }}</div>
+    <div class="sub">original external $ held here</div></div>
+  <div class="stat-card"><div class="label">Gain on principal</div>
+    <div class="value" style="color:{{ 'var(--green)' if s.gain >= 0 else 'var(--red)' }}">
+      {{ '+' if s.gain >= 0 else '' }}${{ "{:,.2f}".format(s.gain) }}</div></div>
+  <div class="stat-card"><div class="label">Returns</div>
+    <div class="text-sm" style="line-height:1.9;margin-top:4px;color:var(--text-1)">
+      • XIRR (money-weighted): <strong>{% if s.xirr is not none %}{{ (s.xirr*100)|round(1) }}%{% else %}—{% endif %}</strong><br>
+      • TWR annualized: <strong>{% if s.twr and s.twr.annualized is not none %}{{ (s.twr.annualized*100)|round(1) }}%{% else %}— (needs 2+ snapshots){% endif %}</strong>
+    </div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;margin-bottom:18px">
+  <!-- Account details editor -->
+  <div class="card">
+    <div class="card-header"><h2>Account details</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="am-msg" class="text-xs"></span>
+        <button class="btn btn-primary btn-sm" id="am-save">Save</button>
+      </div>
+    </div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center">
+        <span class="text-sm text-3">Name</span>
+        <input class="form-control" id="am-name" value="{{ a.name }}">
+        <span class="text-sm text-3">Group</span>
+        <select class="form-control" id="am-group" data-no-combo>
+          {% for g in ['Retirement','General Savings','Alternatives'] %}
+          <option value="{{ g }}" {% if (a.inv_group or 'General Savings') == g %}selected{% endif %}>{{ g }}</option>
+          {% endfor %}
+        </select>
+        <span class="text-sm text-3">Provider</span>
+        <input class="form-control" id="am-provider" value="{{ a.provider or '' }}" placeholder="e.g. your bank or brokerage">
+        <span class="text-sm text-3">Opened</span>
+        <input class="form-control" id="am-opened" type="date" value="{{ a.opened_date or '' }}">
+        <span class="text-sm text-3">Closed</span>
+        <input class="form-control" id="am-closed" type="date" value="{{ a.closed_date or '' }}">
+        <span class="text-sm text-3">Active</span>
+        <select class="form-control" id="am-active" data-no-combo>
+          <option value="1" {% if a.active %}selected{% endif %}>Active</option>
+          <option value="0" {% if not a.active %}selected{% endif %}>Closed / inactive</option>
+        </select>
+      </div>
+      <div><span class="text-sm text-3">Notes</span>
+        <textarea class="form-control" id="am-notes" rows="3"
+          placeholder="anything worth remembering about this account">{{ a.notes or '' }}</textarea></div>
+      <div class="text-xs text-3">Renaming also renames the transfer category,
+        so checking-side transfers keep working. To close an account WITH its
+        money going somewhere, use the Close event on the
+        <a href="/investments/ledger" style="color:var(--navy)">Ledger</a>
+        instead — it moves the lots properly.</div>
+    </div>
+  </div>
+
+  <!-- Quick snapshot -->
+  <div class="card">
+    <div class="card-header"><h2>Record a value snapshot</h2>
+      <span id="snap-msg" class="text-xs"></span></div>
+    <div class="card-body">
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div><div class="text-xs text-3">Date</div>
+          <input class="form-control" id="snap-date" type="date"></div>
+        <div><div class="text-xs text-3">Account value $</div>
+          <input class="form-control" id="snap-value" type="number" step="0.01"
+                 style="width:140px;text-align:right"></div>
+        <button class="btn btn-primary btn-sm" id="snap-add">Record</button>
+      </div>
+      <div class="text-xs text-3" style="margin-top:8px;line-height:1.6">
+        This is how the account stays calibrated to reality: enter the
+        statement value on its date. The difference vs the tool's number
+        spreads across the open lots proportionally, and each dated point
+        powers the value chart + time-weighted returns. Enter these as often
+        as you have them (year-end minimum; monthly is great).
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Lots: the "each $10K" view -->
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header"><h2>Lots — each contribution's own performance</h2>
+    <a class="btn btn-ghost btn-sm"
+       href="?closed={{ '0' if show_closed else '1' }}">
+      {{ 'Hide' if show_closed else 'Show' }} closed lots</a>
+  </div>
+  <div class="card-body" style="padding:0">
+    {% if lots %}
+    <table class="trx-table-uniform" style="margin:0;font-size:12.5px">
+      <thead><tr>
+        <th>Origin date</th><th class="left">Source</th><th>Original $</th><th>Value now</th>
+        <th>Gain</th><th>Total return</th><th>CAGR</th><th>Years</th>
+        <th class="left">Note</th>{% if show_closed %}<th>Closed</th>{% endif %}
+      </tr></thead>
+      <tbody>
+      {% for l in lots %}
+        <tr {% if l.closed_at %}style="opacity:.55"{% endif %}>
+          <td style="white-space:nowrap">{{ l.origin_date }}</td>
+          <td class="left">{% if l.source == 'employer' %}<span style="display:inline-block;
+              padding:1px 7px;border-radius:20px;font-size:11px;font-weight:700;
+              background:#f3ecfa;color:#7a3ea8">employer</span>{% else %}<span class="text-3">you</span>{% endif %}</td>
+          <td style="text-align:right">${{ "{:,.2f}".format(l.origin_amount) }}</td>
+          <td style="text-align:right">${{ "{:,.2f}".format(l.current_value) }}</td>
+          <td style="text-align:right;color:{{ 'var(--green)' if l.gain >= 0 else 'var(--red)' }}">
+            {{ '+' if l.gain >= 0 else '' }}${{ "{:,.2f}".format(l.gain) }}</td>
+          <td style="text-align:right">{% if l.total_return is not none %}{{ (l.total_return*100)|round(1) }}%{% else %}—{% endif %}</td>
+          <td style="text-align:right">{% if l.cagr is not none %}{{ (l.cagr*100)|round(1) }}%/yr{% else %}—{% endif %}</td>
+          <td style="text-align:right">{{ l.years|round(1) }}</td>
+          <td class="left text-2" style="max-width:260px">{{ l.note or '' }}</td>
+          {% if show_closed %}<td>{{ l.closed_at or '' }}</td>{% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-sm text-3" style="padding:16px;font-style:italic">
+      No lots yet — every contribution (or move-in) creates one. Load history
+      via <a href="/investments/import" style="color:var(--navy)">Import History</a>
+      or the <a href="/investments/ledger" style="color:var(--navy)">Ledger</a>.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Event history -->
+<div class="card">
+  <div class="card-header"><h2>Event history</h2>
+    <a href="/investments/ledger?acct={{ a.id }}" class="btn btn-ghost btn-sm">Open in Ledger →</a></div>
+  <div class="card-body" style="padding:0">
+    {% if events %}
+    <table class="trx-table-uniform" style="margin:0;font-size:12.5px">
+      <thead><tr><th>Date</th><th class="left">Type</th><th>Amount</th>
+        <th>Snapshot value</th><th class="left">Note</th></tr></thead>
+      <tbody>
+      {% for e in events %}
+        <tr>
+          <td style="white-space:nowrap">{{ e.event_date }}</td>
+          <td class="left">{{ e.kind }}</td>
+          <td style="text-align:right">{% if e.amount is not none %}{{ '{:+,.2f}'.format(e.amount) }}{% else %}—{% endif %}</td>
+          <td style="text-align:right">{% if e.snapshot_value is not none %}${{ '{:,.2f}'.format(e.snapshot_value) }}{% else %}—{% endif %}</td>
+          <td class="left text-2" style="max-width:340px">{{ e.note or '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-sm text-3" style="padding:16px;font-style:italic">No events yet.</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+document.getElementById('am-save').addEventListener('click', async ()=>{
+  const m=document.getElementById('am-msg');
+  const body={name:document.getElementById('am-name').value,
+              group:document.getElementById('am-group').value,
+              provider:document.getElementById('am-provider').value,
+              opened_date:document.getElementById('am-opened').value,
+              closed_date:document.getElementById('am-closed').value,
+              active:document.getElementById('am-active').value,
+              notes:document.getElementById('am-notes').value};
+  try{
+    const r=await fetch('/api/investments/account/{{ a.id }}/meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.ok){if(window._txSavedToast)_txSavedToast();m.textContent='✓ Saved';m.style.color='var(--green)';setTimeout(()=>location.reload(),600);}
+    else{m.textContent=d.error||'Failed';m.style.color='var(--red)';}
+  }catch(e){m.textContent='Failed: '+e.message;m.style.color='var(--red)';}
+});
+document.getElementById('snap-add').addEventListener('click', async ()=>{
+  const m=document.getElementById('snap-msg');
+  const body={type:'snapshot', account_id:{{ a.id }},
+              date:document.getElementById('snap-date').value,
+              value:document.getElementById('snap-value').value};
+  try{
+    const r=await fetch('/api/investments/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.ok){if(window._txSavedToast)_txSavedToast();m.textContent='✓ Recorded';m.style.color='var(--green)';setTimeout(()=>location.reload(),600);}
+    else{m.textContent=d.error||'Failed';m.style.color='var(--red)';}
+  }catch(e){m.textContent='Failed: '+e.message;m.style.color='var(--red)';}
+});
+</script>
+
+{% endblock %}

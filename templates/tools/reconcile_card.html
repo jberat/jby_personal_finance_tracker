@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Reconcile Card — Personal Financial Tracker{% endblock %}
+{% block page_title %}Reconcile Card (close the cycle){% endblock %}
+
+{% block content %}
+
+<div class="text-sm text-3" style="margin-bottom:14px;line-height:1.6;max-width:860px">
+  The monthly ritual: pick an open card payment, preview exactly which
+  charges it settled, prove the math to the penny, then confirm — payment and
+  statement dates true-up, and charges lock as settled.
+  <strong>Nothing writes until a $0.00 residual is confirmed.</strong>
+  <br>A payment's card = its L2 category (the card account's name), set in
+  the review queue or on the transaction.
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header"><h2>Open payments — not yet reconciled</h2>
+    {% if done_pays %}
+    <button class="btn btn-ghost btn-sm" id="cc-done-toggle"
+            style="margin-left:auto;border:1px solid var(--navy);color:var(--navy)"
+            onclick="ccToggleDone()">View reconciled ({{ done_pays|length }}) ▾</button>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    {% if open_pays %}
+    <table class="trx-table-uniform" style="width:100%;font-size:12.5px">
+      <thead><tr>
+        <th style="text-align:center">Cash date</th>
+        {% if multi_card %}<th style="text-align:center">Card</th>{% endif %}
+        <th style="text-align:center">Amount</th>
+        <th style="text-align:center">Cycle (close)</th>
+        <th style="text-align:center;width:160px">Action</th></tr></thead>
+      <tbody>
+      {% for p in open_pays %}
+        <tr>
+          <td class="center">{{ p.trx_date }}</td>
+          {% if multi_card %}
+          <td class="center">{{ p.card_name or '—' }}</td>
+          {% endif %}
+          <td class="center">{{ (p.P)|amt }}</td>
+          <td class="center">{{ p.cycle_guess or '—' }}</td>
+          <td class="center">
+            {% if p.card_name %}
+            <a class="btn btn-primary btn-sm"
+               href="{{ detail_base }}/{{ p.id }}">Preview →</a>
+            {% else %}
+            <a class="btn btn-ghost btn-sm" href="/transactions/{{ p.id }}"
+               title="Set the L2 category to the card name first">Set card →</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-sm text-3">All caught up — every imported card payment is
+      reconciled. New autopay payments appear here after import + approval
+      (a payment is a transfer with L1 "Credit Card Payment" whose L2 names
+      the card).</div>
+    {% endif %}
+
+    {% if done_pays %}
+    <div id="cc-done-section" style="display:none;margin-top:14px;padding-top:14px;
+         border-top:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px">
+        {% for p in done_pays %}
+        <a href="{{ detail_base }}/{{ p.id }}"
+           class="card" style="text-decoration:none;color:inherit;margin:0">
+          <div class="card-body" style="padding:12px 14px">
+            <div style="font-weight:600;font-size:13.5px;color:var(--navy)">
+              {{ p.cycle or '—' }} statement{% if multi_card and p.card_name %} · {{ p.card_name }}{% endif %}
+            </div>
+            <div class="text-sm" style="margin-top:4px">
+              Paid {{ p.trx_date }} · <strong>{{ (p.P)|amt }}</strong>
+            </div>
+            <div class="text-xs text-3" style="margin-top:4px">
+              {{ p.n_charges }} charges settled
+              {%- if p.carry|abs >= 0.005 %} · carry {{ p.carry|amt }}{% endif %}
+              <span style="color:var(--green)"> ✓</span>
+            </div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Accrued CC expenses per card: every OPEN charge, bucketed by the close
+     it will land on. ── #}
+{% for card in cards %}
+<div class="card" {% if not loop.last %}style="margin-bottom:16px"{% endif %}>
+  <div class="card-header">
+    <h2>Open charges{% if multi_card %} — {{ card.name }}{% endif %} — accruing toward the next payment(s)</h2>
+    <span class="text-xs text-3">
+      unsettled {{ card.name }} activity — what the next statement(s) will bill
+    </span>
+  </div>
+  <div class="card-body">
+    {% if card.groups %}
+    {% for g in card.groups %}
+    <div style="{% if not loop.first %}margin-top:20px;{% endif %}">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">
+        {{ g.close }}{% if 'after' not in (g.close|string) and 'no closes' not in (g.close|string) %} statement{% endif %}
+        <span class="text-xs text-3">({{ g.rows|length }} charges)</span>
+      </div>
+      <table class="trx-table-uniform" style="width:100%;font-size:12px">
+        <thead><tr>
+          <th style="text-align:center">Date</th>
+          <th style="text-align:center">Post</th>
+          <th style="text-align:center">Vendor</th>
+          <th style="text-align:center">Amount</th></tr></thead>
+        <tbody>
+        {% for c in g.rows %}
+          <tr class="trx-row" data-href="/transactions/{{ c.id }}" style="cursor:pointer">
+            <td class="center">{{ c.trx_date }}</td>
+            <td class="center">{{ c.post_date or '—' }}</td>
+            <td class="center">{{ c.vendor or '—' }}</td>
+            <td class="center">{{ (c.semantic)|amt }}</td>
+          </tr>
+        {% endfor %}
+          <tr style="font-weight:600;border-top:2px solid var(--text-1)">
+            <td colspan="3" style="padding:7px 10px">Total</td>
+            <td class="center">{{ (g.subtotal)|amt }}</td>
+          </tr>
+        {% if g.expected is not none %}
+          <tr class="text-sm">
+            <td colspan="3" style="padding:5px 10px" class="text-3">Expected (statement balance)</td>
+            <td class="center">{{ (g.expected)|amt }}
+              {% if g.delta|abs < 0.005 %}<span style="color:var(--green)"> ✓</span>
+              {% else %}<span style="color:var(--red)"> Δ {{ (g.delta)|amt }}</span>{% endif %}
+            </td>
+          </tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
+    {% if card.groups|length > 1 %}
+    <div class="text-sm" style="margin-top:12px;font-weight:600">
+      All open statements: {{ (card.tie.open_sum)|amt }}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="text-sm text-3">No open charges — everything on this card is
+      settled against a payment.</div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Whole row → transaction (same pattern as the trx tables).
+document.querySelectorAll('.trx-row').forEach(row => {
+  row.addEventListener('click', e => {
+    if (e.target.closest('a, button')) return;
+    if (row.dataset.href) window.location = row.dataset.href;
+  });
+});
+function ccToggleDone(){
+  const s = document.getElementById('cc-done-section'),
+        b = document.getElementById('cc-done-toggle'),
+        open = s.style.display === 'none';
+  s.style.display = open ? '' : 'none';
+  b.textContent = (open ? 'Hide reconciled (' : 'View reconciled (') +
+                  '{{ done_pays|length }}' + (open ? ') ▴' : ') ▾');
+}
+</script>
+{% endblock %}

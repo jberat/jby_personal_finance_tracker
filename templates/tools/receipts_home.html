@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Receipts — Personal Financial Tracker{% endblock %}
+{% block page_title %}Receipts{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:880px">
+
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:24px">
+    <div class="text-sm text-2" style="flex:1">
+      Drop receipts into the inbox folder, hit <strong>Scan inbox</strong>,
+      then review one at a time. Nothing auto-files — confirming a receipt in
+      the reviewer moves + renames the file and saves the path, all in one
+      click.
+    </div>
+    <button class="btn btn-primary btn-sm" id="rh-scan"
+            title="Scan the receipts inbox for new files">⟳ Scan inbox</button>
+    {% if n_trash %}
+    <a class="btn btn-ghost btn-sm" href="/receipts/trash"
+       title="Review trashed files full-size before deleting or restoring"
+       style="color:var(--red);text-decoration:none">🗑 Trash ({{ n_trash }})</a>
+    {% endif %}
+  </div>
+  <div id="rh-scan-msg" class="text-xs" style="margin:-14px 0 16px;min-height:14px"></div>
+
+  <script>
+  document.getElementById('rh-scan').addEventListener('click', async ()=>{
+    const b=document.getElementById('rh-scan'), m=document.getElementById('rh-scan-msg');
+    b.disabled=true; b.textContent='Scanning…'; m.textContent='';
+    try{
+      const d=await (await fetch('/api/receipts/scan-inbox',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+      if(d.ok){
+        const parts=[];
+        if(d.queued)parts.push(`${d.queued} queued`); if(d.orphans)parts.push(`${d.orphans} orphaned`);
+        if(d.dupes)parts.push(`${d.dupes} suspected dupes`);
+        m.textContent = parts.length ? `✓ ${parts.join(' · ')} — reloading…` : '✓ Inbox clear — nothing new.';
+        m.style.color='var(--green)';
+        if(parts.length) setTimeout(()=>location.reload(),1200);
+      }else{m.textContent='Scan failed — check Terminal. '+(d.error||'');m.style.color='var(--red)';}
+    }catch(e){m.textContent='Scan failed: '+e.message;m.style.color='var(--red)';}
+    b.disabled=false; b.textContent='⟳ Scan inbox';
+  });
+  </script>
+
+  <!-- Primary: one-at-a-time reviewer -->
+  <a href="/receipts/review" style="text-decoration:none;color:inherit;display:block;margin-bottom:20px">
+    <div class="card" style="cursor:pointer;border-color:var(--navy);transition:box-shadow .15s"
+         onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,.08)'"
+         onmouseout="this.style.boxShadow=''">
+      <div class="card-header">
+        <h2><span style="margin-right:8px">▶</span>Review all (one at a time)
+          {% if n_total %}<span class="pill" style="margin-left:10px;background:var(--navy);color:#fff;font-size:12px;padding:2px 10px;border-radius:11px">{{ n_total }} to review</span>
+          {% else %}<span class="pill" style="margin-left:10px;background:var(--surface-alt);color:var(--text-3);font-size:12px;padding:2px 10px;border-radius:11px">all clear ✓</span>{% endif %}
+        </h2>
+        <span class="text-sm text-3">
+          {{ n_queued }} queued · {{ n_orphans }} orphan{{ '' if n_orphans == 1 else 's' }}{% if n_dupes %} · {{ n_dupes }} suspected dupe{{ '' if n_dupes == 1 else 's' }}{% endif %}
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="text-sm text-2" style="line-height:1.6;margin-bottom:16px">
+          Big receipt image beside the transaction. Confirm with one click,
+          recategorize or split inline (e.g. a Costco run into supplies + food),
+          or repick the match — then it advances to the next.
+        </div>
+        <div class="btn btn-primary" style="display:inline-flex">Start review →</div>
+      </div>
+    </div>
+  </a>
+
+  <div class="text-xs text-3" style="margin-bottom:10px">Or review just the unmatched ones:</div>
+
+  <div style="display:grid;grid-template-columns:1fr;gap:20px">
+
+    <a href="/receipts/orphans" style="text-decoration:none;color:inherit">
+      <div class="card" style="height:100%;cursor:pointer;transition:border-color .15s,box-shadow .15s"
+           onmouseover="this.style.borderColor='var(--navy)';this.style.boxShadow='0 2px 6px rgba(0,0,0,.06)'"
+           onmouseout="this.style.borderColor='';this.style.boxShadow=''">
+        <div class="card-header">
+          <h2><span style="margin-right:8px">？</span>Orphans
+            {% if n_orphans %}<span class="pill" style="margin-left:8px;background:var(--surface-alt);color:var(--text-2);font-size:11px;padding:1px 8px;border-radius:10px">{{ n_orphans }}</span>{% endif %}
+          </h2>
+          <span class="text-sm text-3">Unmatched receipts</span>
+        </div>
+        <div class="card-body">
+          <div class="text-sm text-2" style="line-height:1.6;margin-bottom:16px">
+            Receipts the pipeline couldn't match to any transaction — reviewed
+            one at a time with the full-size image, same shortcuts as the main
+            review. Search by vendor, amount (±10%), or both; picking a
+            transaction files the receipt immediately.
+          </div>
+          <div class="btn btn-primary" style="display:inline-flex">
+            Review Orphans →
+          </div>
+        </div>
+      </div>
+    </a>
+
+  </div>
+
+</div>
+
+{% endblock %}

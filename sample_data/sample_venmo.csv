@@ -1,0 +1,13 @@
+Account Statement - (@sample-user) - April 1st to June 30th 2026
+Account Activity
+,ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance
+,4100000001,2026-04-05T18:22:01,Payment,Complete,Dinner split,Sample User,Jordan Ficticio,- $42.50,,,,,,Venmo balance,,,
+,4100000002,2026-04-12T09:10:44,Payment,Complete,Concert tickets,Sample User,Casey Example,- $65.00,,,,,,Venmo balance,,,
+,4100000003,2026-04-19T14:03:12,Charge,Complete,Groceries share,Sample User,Riley Placeholder,+ $38.75,,,,,,,Venmo balance,,
+,4100000004,2026-04-28T20:41:00,Payment,Complete,Utilities my half,Sample User,Riley Placeholder,- $71.30,,,,,,Venmo balance,,,
+,4100000005,2026-05-03T11:15:37,Payment,Complete,Brunch,Sample User,Jordan Ficticio,- $28.00,,,,,,Venmo balance,,,
+,4100000006,2026-05-10T16:52:09,Charge,Complete,Gas for road trip,Sample User,Casey Example,+ $22.40,,,,,,,Venmo balance,,
+,4100000007,2026-05-17T19:30:55,Payment,Complete,Birthday gift chip-in,Sample User,Alex Sampleton,- $20.00,,,,,,Venmo balance,,,
+,4100000008,2026-05-30T08:05:21,Standard Transfer,Complete,,Sample User,,- $150.00,,,,,,Venmo balance,My Checking x0001,,
+,4100000009,2026-06-08T12:47:18,Payment,Complete,Cat sitting,Sample User,Riley Placeholder,- $45.00,,,,,,Venmo balance,,,
+,4100000010,2026-06-21T17:26:03,Charge,Complete,Dinner split,Sample User,Jordan Ficticio,+ $31.60,,,,,,,Venmo balance,,

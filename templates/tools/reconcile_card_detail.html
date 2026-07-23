@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Reconcile Card — Personal Financial Tracker{% endblock %}
+{% block page_title %}{{ card_name or 'Card' }} payment {{ pay.date }} · {{ (pay.P)|amt }}{% endblock %}
+
+{% block back_link %}
+<a href="{{ landing_url }}" class="btn btn-ghost btn-sm"
+   style="margin-right:4px">← Reconcile Card</a>
+{% endblock %}
+
+{% block content %}
+
+{# Working / success banner #}
+<div id="cc-banner" style="display:none;margin-bottom:14px;max-width:1000px;
+     padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.7"></div>
+
+{% if reconciled %}
+{# ── Reconciled read-out ─────────────────────────────────────────── #}
+<div class="card" style="max-width:1000px;margin-bottom:16px">
+  <div class="card-header"><h2>{{ cycle or '—' }} statement — reconciled ✓</h2>
+    <span class="text-xs text-3">{{ charges|length }} charges settled by this payment</span></div>
+  <div class="card-body">
+    <table class="trx-table-uniform" style="width:100%;font-size:12px">
+      <thead><tr>
+        <th style="text-align:center">Date</th><th style="text-align:center">Post</th>
+        <th style="text-align:center">Vendor</th><th style="text-align:center">Amount</th>
+        <th style="text-align:center">Stmt date</th>
+        <th style="text-align:center">Pay date</th></tr></thead>
+      <tbody>
+      {% for c in charges %}
+        <tr>
+          <td class="center">{{ c.trx_date }}</td>
+          <td class="center">{{ c.post_date or '—' }}</td>
+          <td class="center"><a href="/transactions/{{ c.id }}"
+              style="color:var(--navy)">{{ c.vendor or '—' }}</a></td>
+          <td class="center">{{ (c.semantic)|amt }}</td>
+          <td class="center">{{ c.statement_date or '—' }}</td>
+          <td class="center">{{ c.payment_date or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="text-sm" style="margin-top:10px">
+      Σ charges <strong>{{ (settled_sum)|amt }}</strong>
+      {%- if carry|abs >= 0.005 %} + carry <strong>{{ (carry)|amt }}</strong>{% endif %}
+      vs payment <strong>{{ (pay.P)|amt }}</strong> —
+      {% if ties %}<span style="color:var(--green)">ties to the penny ✓</span>
+      {% else %}<span style="color:var(--red)">does NOT tie ✗</span>{% endif %}
+    </div>
+    <button class="btn btn-ghost btn-sm" style="margin-top:12px"
+            onclick="ccUnwind({{ pay.id }})">Unwind this settlement</button>
+  </div>
+</div>
+
+{% else %}
+{# ── Open payment: preview wizard ────────────────────────────────── #}
+<div class="card" style="max-width:1000px;margin-bottom:16px">
+  <div class="card-header"><h2>Preview</h2>
+    <span class="text-xs text-3">read-only — nothing has been written</span></div>
+  <div class="card-body" id="cc-preview-body">
+    <div class="text-sm text-3">Loading preview…</div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let CC = {payment_id: {{ pay.id }}, include: [], exclude: []};
+
+async function _post(url, body){
+  const r = await fetch(url, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  return r.json();
+}
+function money(x){
+  const v = Math.abs(x);
+  return (x < 0 ? '-$' : '$') + v.toLocaleString(undefined,
+    {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function banner(html, kind){   // kind: 'work' | 'ok' | 'bad'
+  const b = document.getElementById('cc-banner');
+  b.style.display = '';
+  b.style.background = kind === 'ok' ? '#e6f4ea' : kind === 'bad' ? '#fdecea' : '#fff8e1';
+  b.style.border = '1px solid ' + (kind === 'ok' ? 'var(--green)'
+                    : kind === 'bad' ? '#b3261e' : 'var(--amber)');
+  b.innerHTML = html;
+  b.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+{% if not reconciled %}
+async function ccPreview(keepSets){
+  if (!keepSets){ CC.include = []; CC.exclude = []; }
+  const d = await _post('/api/ccrecon/preview',
+    {payment_id: CC.payment_id, include_ids: CC.include, exclude_ids: CC.exclude});
+  const body = document.getElementById('cc-preview-body');
+  if (d.error){ body.innerHTML = '<div style="color:var(--red)">' + d.error + '</div>'; return; }
+
+  let h = `<div class="text-sm" style="margin-bottom:10px">
+    Payment <strong>${d.payment.date}</strong> · <strong>${money(d.payment.amount)}</strong>
+    settles the <strong>${d.card.name} ${d.cycle}</strong> close
+    <span class="text-3">(window ${d.prev_close || 'start'} → ${d.cycle}, statement-date basis, post-date fallback)</span></div>`;
+
+  h += `<table class="trx-table-uniform" style="width:100%;font-size:12px">
+    <thead><tr><th style="text-align:center">Date</th><th style="text-align:center">Post</th>
+    <th style="text-align:center">Vendor</th><th style="text-align:center">Amount</th>
+    <th style="text-align:center">Stmt date now → new</th>
+    <th style="text-align:center">Pay date now → new</th>
+    <th style="text-align:center">P&L month</th><th></th></tr></thead><tbody>`;
+  for (const c of d.charges){
+    const stmtChg = c.stmt_move !== 'no change';
+    h += `<tr${c.included_manually ? ' style="background:var(--amber-bg)"' : ''}>
+      <td class="center">${c.date}</td><td class="center">${c.post || '—'}</td>
+      <td class="center">${c.vendor || '—'}</td>
+      <td class="center">${money(c.semantic)}</td>
+      <td class="center" style="color:${stmtChg ? 'var(--amber)' : 'var(--text-3)'}">${c.stmt_move}</td>
+      <td class="center">${c.payment_date_now || '—'} → <strong>${c.payment_date_new}</strong></td>
+      <td class="center" style="color:${c.pl_move === 'no change' ? 'var(--text-3)' : 'var(--amber)'}">${c.pl_move}</td>
+      <td class="center"><button class="btn btn-ghost btn-sm" title="Exclude and re-preview"
+          onclick="ccExclude(${c.id})">✕</button></td></tr>`;
+  }
+  h += `</tbody></table>`;
+
+  h += `<div class="text-sm" style="margin-top:10px">
+    Σ charges <strong>${money(d.total)}</strong>`;
+  if (Math.abs(d.carry) >= 0.005)
+    h += ` + prior-close carry <strong>${money(d.carry)}</strong>`;
+  h += ` vs payment <strong>${money(d.payment.amount)}</strong> → residual
+    <strong style="color:${d.ok ? 'var(--green)' : 'var(--red)'}">${money(d.residual)}</strong></div>`;
+
+  if (d.ok){
+    h += `<button class="btn btn-primary btn-sm" style="margin-top:10px" id="cc-confirm-btn"
+      onclick="ccConfirm(${d.charges.length})">CONFIRM — settle ${d.charges.length} charges</button>`;
+  } else if (d.diagnosis){
+    h += `<div style="margin-top:12px;padding:12px 14px;background:#fdecea;
+      border:1px solid #b3261e;border-radius:8px;font-size:12.5px">
+      <strong>Residual ≠ 0 — diagnosis:</strong><br>`;
+    const cb = d.diagnosis.carried_balance;
+    if (cb){
+      h += `<div style="margin:8px 0;padding:8px 10px;background:#fff;border-radius:6px">
+        <strong>Payment is ${money(cb.amount)} short of this cycle's charges —
+        that's a carried balance, not an error.</strong><br>
+        <span class="text-xs text-3">Paying less than the statement balance is
+        allowed: the unpaid ${money(cb.amount)} rolls to the next statement
+        (interest will arrive as a normal charge there). To reconcile this
+        partial payment, Exclude the charges it didn't cover — they stay open
+        for the next payment — until the residual reads $0.00.</span></div>`;
+    }
+    const ac = d.diagnosis.absorbed_credits;
+    if (ac){
+      h += `<div style="margin:8px 0;padding:8px 10px;background:#fff;border-radius:6px">
+        <strong>${ac.items.length} credit${ac.items.length > 1 ? 's' : ''} posted after the
+        close but before the payment</strong> (${money(ac.sum)} total) — the bank nets these
+        out of the autopay amount:<br>`;
+      for (const c of ac.items){
+        h += `<span class="text-xs">· <a href="/transactions/${c.id}" target="_blank"
+          style="color:var(--navy)">${c.vendor || '—'}</a> ${c.date} (${money(c.semantic)})</span><br>`;
+      }
+      h += `<span class="text-xs text-3">${ac.exact
+          ? 'Their sum matches the residual exactly — including them ties this payment.'
+          : 'Their sum does not fully explain the residual — include them, then work the remainder.'}</span><br>
+        <button class="btn btn-primary btn-sm" style="margin-top:6px"
+          onclick="ccIncludeMany([${ac.items.map(c => c.id).join(',')}])">Include all &amp; re-preview</button></div>`;
+    }
+    for (const s of d.diagnosis.singles){
+      const inc = s.action === 'include';
+      h += `<div style="margin:8px 0;padding:8px 10px;background:#fff;border-radius:6px">
+        ${inc ? 'Charge outside the window' : 'In-window charge'}
+        <a href="/transactions/${s.id}" target="_blank"
+           style="color:var(--navy);font-weight:600">${s.vendor || '—'}</a>
+        ${s.date} (${money(s.semantic)}) matches the residual.<br>
+        <span class="text-xs text-3">No manual edits needed — ${inc
+          ? `click Include: it joins this cycle, and on Confirm its statement
+             date is set to <strong>${d.cycle}</strong> and its pay date to
+             <strong>${d.payment.date}</strong> automatically.`
+          : `click Exclude: it leaves this cycle and stays open for the next
+             payment's preview to pick up.`}</span><br>
+        <button class="btn btn-primary btn-sm" style="margin-top:6px"
+           onclick="cc${inc ? 'Include' : 'Exclude'}(${s.id})">${inc ? 'Include' : 'Exclude'} &amp; re-preview</button></div>`;
+    }
+    for (const pr of d.diagnosis.pairs){
+      h += `<div style="margin:8px 0;padding:8px 10px;background:#fff;border-radius:6px">
+        Pair <a href="/transactions/${pr[0].id}" target="_blank" style="color:var(--navy)">${pr[0].vendor}</a>
+        (${money(pr[0].semantic)}) + <a href="/transactions/${pr[1].id}" target="_blank"
+        style="color:var(--navy)">${pr[1].vendor}</a> (${money(pr[1].semantic)}) sums to the residual.<br>
+        <button class="btn btn-primary btn-sm" style="margin-top:6px"
+           onclick="ccIncludeMany([${pr[0].id},${pr[1].id}])">Include both &amp; re-preview</button></div>`;
+    }
+    for (const a of d.diagnosis.already_settled){
+      h += `· In-window charge ${a.vendor} ${a.trx_date} is ALREADY settled by
+        payment ${a.payment_id} — double-count risk; investigate.<br>`;
+    }
+    for (const p of d.diagnosis.pending){
+      h += `· PENDING import row "${p.raw_description}" (${money(Math.abs(p.amount))})
+        matches the residual — approve it first, then reconcile.<br>`;
+    }
+    if (d.diagnosis.fallback) h += `· ${d.diagnosis.fallback}<br>`;
+    h += `</div>`;
+  }
+  body.innerHTML = h;
+}
+
+function ccInclude(id){ ccIncludeMany([id]); }
+function ccIncludeMany(ids){
+  for (const id of ids){
+    CC.exclude = CC.exclude.filter(x => x !== id);
+    if (!CC.include.includes(id)) CC.include.push(id);
+  }
+  ccPreview(true);
+}
+function ccExclude(id){
+  CC.include = CC.include.filter(x => x !== id);
+  if (!CC.exclude.includes(id)) CC.exclude.push(id);
+  ccPreview(true);
+}
+
+async function ccConfirm(n){
+  const btn = document.getElementById('cc-confirm-btn');
+  if (btn) btn.disabled = true;
+  banner(`<strong>Working…</strong> settling ${n} charges — writing settlement
+    links, truing up payment + statement dates, and recording the carry.`, 'work');
+  const d = await _post('/api/ccrecon/confirm',
+    {payment_id: CC.payment_id, include_ids: CC.include, exclude_ids: CC.exclude});
+  if (d.error){ banner('<strong>Not applied:</strong> ' + d.error, 'bad');
+                if (btn) btn.disabled = false; return; }
+  banner(`<strong>Cycle closed ✓</strong><br>
+    ${d.n_charges} charges settled · payment dates set ${d.all_payment_dates_set ? '✓' : '✗'} ·
+    Σ ${money(d.settled_sum)}${Math.abs(d.carry) >= 0.005 ? ' + carry ' + money(d.carry) : ''}
+    ties to the payment ${d.ties ? '✓' : '✗'}
+    <br><span class="text-xs text-3">Reloading into the reconciled view…</span>`, 'ok');
+  setTimeout(()=>location.reload(), 2200);
+}
+document.addEventListener('DOMContentLoaded', ()=>ccPreview());
+{% endif %}
+
+async function ccUnwind(paymentId){
+  if (!confirm('Unwind this settlement? Charges revert to their prior payment and statement dates.')) return;
+  banner('<strong>Working…</strong> unwinding the settlement and restoring dates.', 'work');
+  const d = await _post('/api/ccrecon/unwind', {payment_id: paymentId});
+  if (d.error){ banner('<strong>Error:</strong> ' + d.error, 'bad'); return; }
+  banner(`<strong>Unwound ✓</strong> — ${d.n_charges} charges restored. Reloading…`, 'ok');
+  setTimeout(()=>location.reload(), 1200);
+}
+</script>
+{% endblock %}

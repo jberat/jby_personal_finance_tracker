@@ -1,0 +1,281 @@
+{#
+  Shared JS for all TRX tables (expenses, income, etc.)
+  Requires: CAT_MAP defined in <script> before this include
+  Provides:
+    - Date popup (tx-date cells)
+    - Category popup (tx-cat cells)
+    - Vendor/note/account inline save on blur/change
+    - Row click → detail page
+    - Keyboard shortcuts (Enter/Escape on popup)
+#}
+
+<!-- Popup markup (shared, one per page) -->
+<div class="tx-popup" id="tx-popup">
+  <div id="tx-popup-content"></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-primary btn-sm" onclick="txSavePopup()">Save</button>
+    <button class="btn btn-ghost btn-sm"   onclick="txClosePopup()">Cancel</button>
+  </div>
+</div>
+<div class="tx-overlay" id="tx-overlay" onclick="txClosePopup()"></div>
+
+<script>
+// ── Popup system ──────────────────────────────────────────────────────────────
+let _txSaveFn = null;
+
+const TX_DATE_LABELS = {
+  trx_date: 'Transaction Date',
+  post_date: 'Posted Date',
+  statement_date: 'Statement Date',
+  payment_date: 'Payment Date',
+};
+
+function showTxPopup(e, html, onSave) {
+  e.stopPropagation();
+  document.getElementById('tx-popup-content').innerHTML = html;
+  const popup = document.getElementById('tx-popup');
+  popup.style.display = 'block';
+  document.getElementById('tx-overlay').style.display = 'block';
+  const x = Math.min(e.clientX, window.innerWidth  - 280);
+  const y = Math.min(e.clientY + 8, window.innerHeight - 240);
+  popup.style.left = x + 'px';
+  popup.style.top  = y + 'px';
+  _txSaveFn = onSave;
+  setTimeout(() => {
+    const inp = document.getElementById('tx-ep-input') || document.getElementById('tx-ep-l1');
+    if (inp) { inp.focus(); if (inp.type !== 'date' && inp.select) inp.select(); }
+  }, 10);
+}
+
+function txSavePopup() { if (_txSaveFn) _txSaveFn(); txClosePopup(); }
+function txClosePopup() {
+  document.getElementById('tx-popup').style.display = 'none';
+  document.getElementById('tx-overlay').style.display = 'none';
+  _txSaveFn = null;
+}
+
+// ── Patch a transaction field via API ────────────────────────────────────────
+// Saves go through shared.js txPatch(url, body), which surfaces failures
+// (error toast + throw) instead of silently ignoring them — a thrown save
+// skips the success-path UI update that follows the await. (Phase 6.)
+//
+// Default target: /api/transactions/{id} (post-approval transactions).
+// Pages displaying staging rows (e.g. a review queue) can override:
+//   window.TX_PATCH_URL = id => `/api/review/${id}/update`;
+function _txUrl(id) {
+  return (typeof window.TX_PATCH_URL === 'function')
+    ? window.TX_PATCH_URL(id)
+    : `/api/transactions/${id}`;
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+// ── Date cells ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tx-date').forEach(el => {
+  el.addEventListener('click', e => {
+    const id    = el.dataset.id;
+    const field = el.dataset.field;
+    const cur   = el.dataset.value || '';
+    showTxPopup(e, `
+      <label class="form-label" style="font-size:12px">${TX_DATE_LABELS[field] || field}</label>
+      <input class="form-control" id="tx-ep-input" type="date" value="${cur}">
+    `, async () => {
+      const val = document.getElementById('tx-ep-input').value || null;
+      await txPatch(_txUrl(id), {[field]: val});
+      el.textContent = val || '—';
+      el.dataset.value = val || '';
+    });
+  });
+});
+
+// ── Category cells ────────────────────────────────────────────────────────────
+function _buildCatL1Opts(trxType, selL1) {
+  const pfx = trxType + ':';
+  const l1s = Object.keys(CAT_MAP).filter(k => k.startsWith(pfx))
+                    .map(k => k.replace(pfx, '')).sort();
+  return '<option value="">— None —</option>' +
+    l1s.map(v => `<option value="${v}" ${v===selL1?'selected':''}>${v}</option>`).join('');
+}
+
+function _buildCatL2Opts(trxType, l1, selL2) {
+  const key = trxType + ':' + l1;
+  const l2s = CAT_MAP[key] || [];
+  return '<option value="">— None —</option>' +
+    l2s.map(v => `<option value="${v}" ${v===selL2?'selected':''}>${v}</option>`).join('');
+}
+
+document.querySelectorAll('.tx-cat').forEach(el => {
+  el.addEventListener('click', e => {
+    const id      = el.dataset.id;
+    const trxType = el.dataset.trxtype || 'expense';
+    const curL1   = el.dataset.l1 || '';
+    const curL2   = el.dataset.l2 || '';
+    showTxPopup(e, `
+      <label class="form-label" style="font-size:12px">L1 Category</label>
+      <select class="form-control" id="tx-ep-l1" style="margin-bottom:8px"
+              onchange="txRefreshL2('${trxType}')">
+        ${_buildCatL1Opts(trxType, curL1)}
+      </select>
+      <label class="form-label" style="font-size:12px">L2 Category</label>
+      <select class="form-control" id="tx-ep-l2">${_buildCatL2Opts(trxType, curL1, curL2)}</select>
+    `, async () => {
+      const newL1 = document.getElementById('tx-ep-l1').value || null;
+      const newL2 = document.getElementById('tx-ep-l2').value || null;
+      await txPatch(_txUrl(id), {l1_category: newL1, l2_category: newL2});
+      el.dataset.l1 = newL1 || '';
+      el.dataset.l2 = newL2 || '';
+      el.innerHTML = newL1
+        ? `${newL1}${newL2 ? ' / ' + newL2 : ''}`
+        : '<span style="color:var(--text-3)">—</span>';
+    });
+  });
+});
+
+function txRefreshL2(trxType) {
+  const l1 = document.getElementById('tx-ep-l1').value;
+  document.getElementById('tx-ep-l2').innerHTML = _buildCatL2Opts(trxType, l1, '');
+}
+
+// ── Amount cells — click-to-edit popup (only where data-id is present) ──────
+//
+// Use negative values for credits / contra-expenses (refund, friend payback).
+// On save the cell re-renders with the right sign placement (-$50.00, not
+// $-50.00) and recolors: negative → green; positive → the table's natural color, which
+// each template sets on the span via data-color-positive (e.g. var(--text),
+// var(--red), var(--green)).
+document.querySelectorAll('.tx-amount[data-id]').forEach(el => {
+  el.style.cursor = 'pointer';
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    const id  = el.dataset.id;
+    const cur = el.dataset.value || '0';
+    showTxPopup(e, `
+      <label class="form-label" style="font-size:12px">Amount</label>
+      <div style="position:relative">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-2)">$</span>
+        <input class="form-control" id="tx-ep-input" type="number" step="0.01"
+               value="${cur}" style="padding-left:24px;text-align:right">
+      </div>
+      <div class="text-xs text-3" style="margin-top:6px;line-height:1.4">
+        Use negative for credits / refunds.
+      </div>
+    `, async () => {
+      const raw = document.getElementById('tx-ep-input').value;
+      const val = parseFloat(raw);
+      if (isNaN(val)) return;
+      await txPatch(_txUrl(id), {amount: val});
+      // Re-render: negative shows as -$XX.XX (sign before $).
+      const sign = val < 0 ? '-' : '';
+      el.textContent = sign + '$' + Math.abs(val).toLocaleString('en-US', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      });
+      el.dataset.value = val;
+      // Recolor based on new sign + current type (income vs expense).
+      const row     = el.closest('tr');
+      const typeSel = row?.querySelector('.tx-select[data-field="trx_type"]');
+      const type    = typeSel ? typeSel.value : 'expense';
+      const expCol  = el.dataset.colorExpense || 'var(--text)';
+      el.style.color = _txAmountColor(val, type, expCol);
+    });
+  });
+});
+
+// ── Vendor / Note cells — inline save on blur ────────────────────────────────
+document.querySelectorAll('.tx-input[data-field]').forEach(inp => {
+  inp.addEventListener('blur', async () => {
+    const id    = inp.dataset.id;
+    const field = inp.dataset.field;
+    const val   = inp.value.trim() || null;
+    await txPatch(_txUrl(id), {[field]: val});
+  });
+  // Enter blurs (saves); Shift+Enter allows multiline if ever needed
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); inp.blur(); }
+  });
+});
+
+// ── Account / Type inline select — save on change ───────────────────────────
+//
+// trx_type drives which category tree is valid (categories are scoped per
+// type — 'expense'/'income'/'transfer'). Changing it invalidates the row's
+// L1/L2, so the category is cleared in both UI and DB and the cat cell's
+// data-trxtype prefix refreshed so the next popup pulls from the right tree.
+
+// Compute the right amount color given (amount, type, table's expense color).
+// Convention: money-in green, money-out red, regardless of trx_type.
+//   income type:  positive (true income) → green; negative (contra) → red
+//   expense type: positive (spend) → expenseColor (red);
+//                 negative (refund) → green
+//   transfer type: same as expense (rare for these tables anyway)
+function _txAmountColor(amt, type, expenseColor) {
+  if (type === 'income') {
+    return amt < 0 ? 'var(--red)' : 'var(--green)';
+  }
+  return amt < 0 ? 'var(--green)' : (expenseColor || 'var(--text)');
+}
+
+// Re-color a row's amount cell after a type change so visuals match
+// the new state without requiring a page reload.
+function _txRefreshRowAmountColor(row) {
+  const amtCell = row?.querySelector('.tx-amount[data-id]');
+  if (!amtCell) return;
+  const amt     = parseFloat(amtCell.dataset.value || '0');
+  const typeSel = row.querySelector('.tx-select[data-field="trx_type"]');
+  const type    = typeSel ? typeSel.value : 'expense';
+  const expCol  = amtCell.dataset.colorExpense || 'var(--text)';
+  amtCell.style.color = _txAmountColor(amt, type, expCol);
+}
+
+document.querySelectorAll('.tx-select[data-field]').forEach(sel => {
+  sel.addEventListener('change', async () => {
+    const id    = sel.dataset.id;
+    const field = sel.dataset.field;
+    const row   = sel.closest('tr');
+
+    if (field === 'trx_type') {
+      // 'cc_payment' is a DISPLAY fork over transfer (same stored type):
+      // it persists trx_type='transfer' + L1 'Credit Card Payment' (the
+      // distinguishing signal); L2 (which card) is picked in the cat cell.
+      const isCcp     = sel.value === 'cc_payment';
+      const realType  = isCcp ? 'transfer' : sel.value;
+      const l1        = isCcp ? 'Credit Card Payment' : null;
+      await txPatch(_txUrl(id), {trx_type: realType, l1_category: l1, l2_category: null});
+
+      // Reflect in the row's cat cell: set/clear L1/L2, refresh trxtype
+      // prefix, re-render.
+      const catCell = row?.querySelector('.tx-cat');
+      if (catCell) {
+        catCell.dataset.l1 = l1 || '';
+        catCell.dataset.l2 = '';
+        catCell.dataset.trxtype = realType;
+        catCell.innerHTML = l1 || '<span style="color:var(--text-3)">—</span>';
+      }
+
+      // Recolor the amount cell to match the new type (income green vs expense).
+      _txRefreshRowAmountColor(row);
+      return;
+    }
+
+    // Default: save the single field.
+    await txPatch(_txUrl(id), {[field]: sel.value});
+  });
+});
+
+// ── Row click → detail page ───────────────────────────────────────────────────
+// Row hover is handled by CSS (tbody tr:hover) — matching the review table gold standard
+document.querySelectorAll('.trx-row').forEach(row => {
+  row.addEventListener('click', e => {
+    if (e.target.closest('.tx-input, .tx-select, .tx-date, .tx-cat, .tx-amount[data-id], .tx-popup, a, button')) return;
+    if (row.dataset.href) window.location = row.dataset.href;
+  });
+});
+
+// ── Keyboard: Enter/Escape on popup ──────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (document.getElementById('tx-popup').style.display === 'none') return;
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); txSavePopup(); }
+  if (e.key === 'Escape') txClosePopup();
+});
+</script>

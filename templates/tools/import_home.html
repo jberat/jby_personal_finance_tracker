@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Import — Personal Financial Tracker{% endblock %}
+{% block page_title %}Import{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:880px">
+
+  <div class="text-sm text-2" style="margin-bottom:24px">
+    Bring transactions into the tracker — either from a bank/card CSV
+    or by hand-entering a single row.
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+    <a href="/import" style="text-decoration:none;color:inherit">
+      <div class="card" style="height:100%;cursor:pointer;transition:border-color .15s,box-shadow .15s"
+           onmouseover="this.style.borderColor='var(--navy)';this.style.boxShadow='0 2px 6px rgba(0,0,0,.06)'"
+           onmouseout="this.style.borderColor='';this.style.boxShadow=''">
+        <div class="card-header">
+          <h2><span style="margin-right:8px">↥</span>CSV Upload</h2>
+        </div>
+        <div class="card-body">
+          <div class="text-sm text-2" style="line-height:1.6;margin-bottom:16px">
+            Upload a Chase CC or Chase Checking statement.
+            Imports land in the review queue.
+            You categorize and approve each row.
+          </div>
+          <div class="btn btn-primary" style="display:inline-flex">
+            Open CSV Upload →
+          </div>
+        </div>
+      </div>
+    </a>
+
+    <a href="/import/manual" style="text-decoration:none;color:inherit">
+      <div class="card" style="height:100%;cursor:pointer;transition:border-color .15s,box-shadow .15s"
+           onmouseover="this.style.borderColor='var(--navy)';this.style.boxShadow='0 2px 6px rgba(0,0,0,.06)'"
+           onmouseout="this.style.borderColor='';this.style.boxShadow=''">
+        <div class="card-header">
+          <h2><span style="margin-right:8px">＋</span>Manual Entry</h2>
+        </div>
+        <div class="card-body">
+          <div class="text-sm text-2" style="line-height:1.6;margin-bottom:16px">
+            Add a single transaction by hand — useful for cash, Venmo, Zelle, or
+            anything not captured in a bank import.
+          </div>
+          <div class="btn btn-primary" style="display:inline-flex">
+            Open Manual Entry →
+          </div>
+        </div>
+      </div>
+    </a>
+
+  </div>
+
+</div>
+
+{% endblock %}

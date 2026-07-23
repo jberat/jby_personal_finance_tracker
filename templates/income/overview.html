@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% block title %}Income Overview — Personal Financial Tracker{% endblock %}
+{% block page_title %}Income — Overview{% endblock %}
+
+{% block header_actions %}
+<button type="button" class="btn btn-ghost" onclick="__exportOpen()">Export</button>
+<select class="form-control" style="width:auto"
+        onchange="window.location='/income/overview?year='+this.value">
+  {% for y in available_years %}
+    <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+  {% endfor %}
+</select>
+{% endblock %}
+
+{% block content %}
+
+<style>
+  /* Income overview — center-align all data cells on this page only.
+     Scoped via <style> in this template, so other pages' pivots stay
+     right-aligned. Label cells (.l1-label, plain L2 td) keep their
+     left/native alignment. */
+  .pivot-table .right { text-align: center !important; }
+</style>
+
+{% set grand = totals.values() | sum %}
+
+<div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+  <div class="stat-card">
+    <div class="label">Total Income</div>
+    <div class="value green">{% if grand < 0 %}-{% endif %}${{ "{:,.0f}".format(grand|abs) }}</div>
+    <div class="sub">{{ year }} approved</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Transactions</div>
+    <div class="value">{{ "{:,}".format(trx_count) }}</div>
+    <div class="sub">{{ l1_list | length }} income types</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Monthly Avg</div>
+    <div class="value">
+      ${{ "{:,.0f}".format(grand / months_with_data) if months_with_data else "0" }}
+    </div>
+    <div class="sub">
+      {% if months_with_data == 1 %}1 month with data
+      {% elif months_with_data %}{{ months_with_data }} months with data
+      {% else %}no data yet{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if zero_state %}
+<div class="text-xs text-3" style="margin-bottom:10px">
+  Showing your full category tree — import transactions and this trims to what you actually use.
+</div>
+{% endif %}
+
+<!-- Expand/collapse controls -->
+<div class="flex items-center justify-between mb-4">
+  <span class="text-sm text-2">Click any category row to see L2 breakdown</span>
+  <div class="flex gap-2">
+    <button class="btn btn-ghost btn-sm" onclick="expandAll()">Expand all</button>
+    <button class="btn btn-ghost btn-sm" onclick="collapseAll()">Collapse all</button>
+  </div>
+</div>
+
+<!-- Pivot table -->
+<div class="table-wrap">
+  <table class="pivot-table" id="overview-table">
+    <thead>
+      <tr>
+        <th style="width:180px">Type</th>
+        {% for m in range(1,13) %}
+          <th class="right">{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1] }}</th>
+        {% endfor %}
+        <th class="right total-col">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for l1 in l1_list %}
+      {% set row_total = totals[l1] %}
+      <!-- L1 row -->
+      <tr class="l1-row" data-l1="{{ l1 }}" onclick="toggleL2('{{ l1 }}')"
+          style="cursor:pointer">
+        <td class="l1-label">
+          <span class="expand-icon" id="icon-{{ l1 | replace(' ','_') | replace('&','_') }}">▶</span>
+          <a href="/income/transactions?year={{ year }}&l1={{ l1 | urlencode }}"
+             onclick="event.stopPropagation()"
+             style="color:var(--navy);margin-left:6px">{{ l1 }}</a>
+        </td>
+        {% for m in range(1,13) %}
+          {% set v = pivot[l1]['{:02d}'.format(m)] %}
+          {% set mm = '{:02d}'.format(m) %}
+          <td class="right {% if v == 0 %}zero{% endif %}">
+            {% if v != 0 %}<a href="/income/transactions?year={{ year }}&l1={{ l1 | urlencode }}&month={{ mm }}"
+                  style="color:inherit;text-decoration:none">{% if v < 0 %}-{% endif %}{% if v|abs < 0 %}-{% endif %}${{ "{:,.0f}".format(v|abs|abs) }}</a>{% else %}—{% endif %}
+          </td>
+        {% endfor %}
+        <td class="right total-col">
+          {% if row_total != 0 %}<a href="/income/transactions?year={{ year }}&l1={{ l1 | urlencode }}"
+                style="color:inherit;text-decoration:none">{% if row_total < 0 %}-{% endif %}{% if row_total|abs < 0 %}-{% endif %}${{ "{:,.0f}".format(row_total|abs|abs) }}</a>{% else %}—{% endif %}
+        </td>
+      </tr>
+      <!-- L2 child rows (hidden by default) -->
+      {% if l2_map.get(l1) %}
+        {% for item in l2_map[l1] %}
+        <tr class="l2-row" data-parent="{{ l1 }}" style="display:none;background:#FAFAF8">
+          <td style="padding-left:36px;color:var(--text-2);font-size:12.5px">
+            <a href="/income/transactions?year={{ year }}&l1={{ l1 | urlencode }}&l2={{ item.l2 | urlencode }}"
+               style="color:var(--text-2)">{{ item.l2 }}</a>
+            <span class="text-3" style="margin-left:6px;font-size:11px">{{ item.cnt }} trx</span>
+          </td>
+          {% for m in range(1,13) %}
+            {% set mk = '%s||%s||%02d' % (l1, item.l2, m) %}
+            {% set v = l2_monthly_flat.get(mk, 0) %}
+            {% set mm = '{:02d}'.format(m) %}
+            <td class="right" style="color:var(--text-2);font-size:12px;
+                {% if v == 0 %}opacity:0.3{% endif %}">
+              {% if v != 0 %}<a href="/income/transactions?year={{ year }}&l1={{ l1 | urlencode }}&l2={{ item.l2 | urlencode }}&month={{ mm }}"
+                  style="color:inherit;text-decoration:none">{% if v < 0 %}-{% endif %}{% if v|abs < 0 %}-{% endif %}${{ "{:,.0f}".format(v|abs|abs) }}</a>{% else %}—{% endif %}
+            </td>
+          {% endfor %}
+          <td class="right total-col" style="color:var(--text-2);font-size:12.5px">
+            <a href="/income/transactions?year={{ year }}&l1={{ l1 | urlencode }}&l2={{ item.l2 | urlencode }}"
+               style="color:inherit;text-decoration:none">{% if item.total < 0 %}-{% endif %}${{ "{:,.0f}".format(item.total|abs) }}</a>
+          </td>
+        </tr>
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="border-top:2px solid var(--border-mid);font-weight:700">
+        <td>Total</td>
+        {% for m in range(1,13) %}
+          {% set col_total = namespace(v=0) %}
+          {% for l1 in l1_list %}
+            {% set col_total.v = col_total.v + pivot[l1]['{:02d}'.format(m)] %}
+          {% endfor %}
+          {% set mm = '{:02d}'.format(m) %}
+          <td class="right">
+            {% if col_total.v != 0 %}<a href="/income/transactions?year={{ year }}&month={{ mm }}"
+                  style="color:inherit;text-decoration:none">{% if col_total.v < 0 %}-{% endif %}{% if col_total.v|abs < 0 %}-{% endif %}${{ "{:,.0f}".format(col_total.v|abs|abs) }}</a>{% else %}—{% endif %}
+          </td>
+        {% endfor %}
+        <td class="right total-col"><a href="/income/transactions?year={{ year }}"
+               style="color:inherit;text-decoration:none">{% if grand < 0 %}-{% endif %}${{ "{:,.0f}".format(grand|abs) }}</a></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+{# ── Taxes (contra-income) — by L2 × month ──────────────────────────────── #}
+{% if tax_l2_list %}
+{% set tax_grand = tax_totals.values() | sum %}
+<div class="card" style="margin-top:24px">
+  <div class="card-header">
+    <h2>Taxes — {{ year }}</h2>
+    <a class="btn btn-ghost btn-sm"
+       href="/income/transactions?year={{ year }}&l1=Taxes">View all tax trxs →</a>
+  </div>
+  <div class="card-body" style="padding:0">
+    <div class="table-wrap" style="border:none">
+      <table class="pivot-table">
+        <thead>
+          <tr>
+            <th style="width:180px">Tax Type (L2)</th>
+            {% for m in range(1,13) %}
+              <th class="right">{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1] }}</th>
+            {% endfor %}
+            <th class="right total-col">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for l2 in tax_l2_list %}
+          {% set rt = tax_totals[l2] %}
+          <tr>
+            <td style="font-weight:500;color:var(--navy)">
+              <a href="/income/transactions?year={{ year }}&l1=Taxes&l2={{ l2 | urlencode }}"
+                 style="color:var(--navy)">{{ l2 }}</a>
+              {% if tax_cnt.get(l2) %}
+                <span class="text-3" style="margin-left:6px;font-size:11px">{{ tax_cnt[l2] }} trx</span>
+              {% endif %}
+            </td>
+            {% for m in range(1,13) %}
+              {% set v = tax_pivot[l2]['{:02d}'.format(m)] %}
+              {% set mm = '{:02d}'.format(m) %}
+              <td class="right {% if v == 0 %}zero{% endif %}">
+                {% if v != 0 %}<a href="/income/transactions?year={{ year }}&l1=Taxes&l2={{ l2 | urlencode }}&month={{ mm }}"
+                      style="color:inherit;text-decoration:none">{% if v < 0 %}-{% endif %}${{ "{:,.0f}".format(v|abs) }}</a>{% else %}—{% endif %}
+              </td>
+            {% endfor %}
+            <td class="right total-col">
+              {% if rt != 0 %}<a href="/income/transactions?year={{ year }}&l1=Taxes&l2={{ l2 | urlencode }}"
+                    style="color:inherit;text-decoration:none">{% if rt < 0 %}-{% endif %}${{ "{:,.0f}".format(rt|abs) }}</a>{% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--border-mid);font-weight:700">
+            <td>Total</td>
+            {% for m in range(1,13) %}
+              {% set col_total = namespace(v=0) %}
+              {% for l2 in tax_l2_list %}
+                {% set col_total.v = col_total.v + tax_pivot[l2]['{:02d}'.format(m)] %}
+              {% endfor %}
+              {% set mm = '{:02d}'.format(m) %}
+              <td class="right">
+                {% if col_total.v != 0 %}<a href="/income/transactions?year={{ year }}&l1=Taxes&month={{ mm }}"
+                      style="color:inherit;text-decoration:none">{% if col_total.v < 0 %}-{% endif %}${{ "{:,.0f}".format(col_total.v|abs) }}</a>{% else %}—{% endif %}
+              </td>
+            {% endfor %}
+            <td class="right total-col">
+              <a href="/income/transactions?year={{ year }}&l1=Taxes"
+                 style="color:inherit;text-decoration:none">{% if tax_grand < 0 %}-{% endif %}${{ "{:,.0f}".format(tax_grand|abs) }}</a>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Net Income per month (gross income + taxes, signs preserved) ────────── #}
+<div class="card" style="margin-top:24px">
+  <div class="card-header">
+    <h2>Net Income — {{ year }}</h2>
+    <span class="text-sm text-3">gross income + taxes (contra), per month</span>
+  </div>
+  <div class="card-body" style="padding:0">
+    <div class="table-wrap" style="border:none">
+      <table class="pivot-table">
+        <thead>
+          <tr>
+            <th style="width:180px"></th>
+            {% for m in range(1,13) %}
+              <th class="right">{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1] }}</th>
+            {% endfor %}
+            <th class="right total-col">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="font-weight:600">
+            <td>Net Income</td>
+            {% for m in range(1,13) %}
+              {% set mm = '{:02d}'.format(m) %}
+              {% set v = net_pivot[mm] %}
+              <td class="right {% if v == 0 %}zero{% endif %}">
+                {% if v != 0 %}{% if v < 0 %}-{% endif %}${{ "{:,.0f}".format(v|abs) }}{% else %}—{% endif %}
+              </td>
+            {% endfor %}
+            <td class="right total-col">
+              {% if net_total != 0 %}{% if net_total < 0 %}-{% endif %}${{ "{:,.0f}".format(net_total|abs) }}{% else %}—{% endif %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% from "_export_modal.html" import export_modal %}
+{{ export_modal('/export/income-overview.xlsx', 'Income — Overview',
+                year=year, basis_default='trx', show_level=True) }}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleL2(l1) {
+  const key = l1.replace(/ /g,'_').replace(/&/g,'_');
+  const icon = document.getElementById('icon-' + key);
+  const rows = document.querySelectorAll(`tr[data-parent="${l1}"]`);
+  const isOpen = rows.length && rows[0].style.display !== 'none';
+  rows.forEach(r => r.style.display = isOpen ? 'none' : '');
+  if (icon) icon.textContent = isOpen ? '▶' : '▼';
+}
+
+function expandAll() {
+  document.querySelectorAll('.l2-row').forEach(r => r.style.display = '');
+  document.querySelectorAll('.expand-icon').forEach(i => i.textContent = '▼');
+}
+
+function collapseAll() {
+  document.querySelectorAll('.l2-row').forEach(r => r.style.display = 'none');
+  document.querySelectorAll('.expand-icon').forEach(i => i.textContent = '▶');
+}
+</script>
+{% endblock %}

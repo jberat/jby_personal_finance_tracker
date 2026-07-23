@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Tools Menu — Personal Financial Tracker{% endblock %}
+{% block page_title %}Tools Menu{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:640px">
+
+  <div class="text-sm text-2" style="margin-bottom:24px;line-height:1.6">
+    Check which tools appear in the sidebar Tools
+    submenu, and <strong>drag ☰ to set their order</strong>.
+    Everything is always reachable from <strong>All Tools</strong> regardless.
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Show in submenu — drag to reorder</h2></div>
+    <div class="card-body" style="padding:0">
+      <table style="width:100%">
+        <tbody id="tm-rows">
+        {% for t in tools %}
+          <tr draggable="true" data-key="{{ t.key }}"
+              style="border-bottom:1px solid var(--border);cursor:grab">
+            <td style="padding:12px 10px 12px 16px;width:30px;color:var(--text-3)"
+                title="Drag to reorder">☰</td>
+            <td style="padding:12px 6px;width:34px">
+              <input type="checkbox" class="tm-check" value="{{ t.key }}"
+                     {% if t.checked %}checked{% endif %}>
+            </td>
+            <td style="padding:12px 16px;font-weight:600;color:var(--text-1)">
+              {{ t.title }}
+              {% if not t.built %}
+              <span class="text-xs text-3" style="font-weight:400;margin-left:6px">(coming soon)</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+    <button class="btn btn-primary btn-sm" id="tm-save">Save</button>
+    <span id="tm-msg" class="text-xs"></span>
+  </div>
+
+</div>
+
+<script>
+// ── Drag-to-reorder ─────────────────────────────────────────────────────────
+(function(){
+  const tbody = document.getElementById('tm-rows');
+  let dragging = null;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.addEventListener('dragstart', e => {
+      dragging = tr; tr.style.opacity = '0.4';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    tr.addEventListener('dragend', () => { tr.style.opacity = ''; dragging = null; });
+    tr.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (!dragging || dragging === tr) return;
+      const rect = tr.getBoundingClientRect();
+      const after = (e.clientY - rect.top) > rect.height / 2;
+      tbody.insertBefore(dragging, after ? tr.nextSibling : tr);
+    });
+  });
+})();
+
+document.getElementById('tm-save').addEventListener('click', async () => {
+  const msg = document.getElementById('tm-msg');
+  // Keys in current DOM order, checked only — order IS the submenu order.
+  const keys = [...document.querySelectorAll('#tm-rows tr')]
+    .filter(tr => tr.querySelector('.tm-check').checked)
+    .map(tr => tr.dataset.key);
+  msg.textContent = 'Saving…'; msg.style.color = 'var(--text-3)';
+  try {
+    const r = await fetch('/api/settings/tools-menu', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys})
+    });
+    const d = await r.json();
+    if (d.ok) { if (window._txSavedToast) _txSavedToast(); msg.textContent = '✓ Saved — reloading…'; msg.style.color = 'var(--green)'; setTimeout(()=>location.reload(), 800); }
+    else { msg.textContent = d.error || 'Save failed'; msg.style.color = 'var(--red)'; }
+  } catch (e) { msg.textContent = 'Save failed: ' + e.message; msg.style.color = 'var(--red)'; }
+});
+</script>
+
+{% endblock %}

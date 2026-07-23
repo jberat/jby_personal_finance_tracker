@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Investment Transactions — Personal Financial Tracker{% endblock %}
+{% block page_title %}Investments — Transactions{% endblock %}
+
+{% block header_actions %}
+<select class="form-control" style="width:auto"
+        onchange="window.location='/investments/transactions?year='+this.value">
+  {% for y in available_years %}
+    <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+  {% endfor %}
+</select>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:24px;max-width:520px">
+  <div class="stat-card">
+    <div class="label">{{ year }} Transfers</div>
+    <div class="value" style="color:var(--navy)">{{ rows | length }}</div>
+    <div class="sub">into investment accounts</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">{{ year }} Total</div>
+    {% set disp_total = -1 * total %}
+    <div class="value" style="color:{% if disp_total >= 0 %}var(--green){% else %}var(--red){% endif %}">
+      {% if disp_total < 0 %}-{% endif %}${{ "{:,.2f}".format(disp_total | abs) }}
+    </div>
+    <div class="sub">net into investments</div>
+  </div>
+</div>
+
+<form method="get" action="/investments/transactions"
+      style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+  <input type="hidden" name="year" value="{{ year }}">
+  <input type="text" name="q" value="{{ q or '' }}" placeholder="Search vendor, description, note, or tag…"
+         class="form-control" style="width:320px;max-width:60vw">
+  <select name="acct" class="form-control" style="width:auto">
+    <option value="">All accounts</option>
+    {% for a in accounts %}
+      <option value="{{ a.id }}" {% if acct == a.id|string %}selected{% endif %}>{{ a.name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-primary btn-sm">Search</button>
+  {% if q or acct %}
+    <a href="/investments/transactions?year={{ year }}" class="btn btn-ghost btn-sm">Clear</a>
+  {% endif %}
+</form>
+
+{% if rows %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:110px">Date</th>
+        <th>Description</th>
+        <th>Account</th>
+        <th>Category</th>
+        <th class="right" style="width:120px">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in rows %}
+      <tr style="cursor:pointer" onclick="window.location='/transactions/{{ t.id }}'">
+        <td class="mono dim" style="font-size:12px;white-space:nowrap">{{ t.trx_date }}</td>
+        <td>
+          <span style="font-weight:500">{{ t.vendor or t.raw_description[:40] }}</span>
+        </td>
+        <td class="dim text-sm">{{ t.account_name }}</td>
+        <td class="dim text-sm">
+          {{ t.l1_category }}{% if t.l2_category %} / {{ t.l2_category }}{% endif %}
+        </td>
+        {# Display = -t.amount so positive (green) reads as "money INTO investments"
+           and negative (red) reads as "money OUT of investments". DB stays bank-sign. #}
+        {% set disp = -1 * t.amount %}
+        <td class="right" style="font-family:var(--font-mono);font-weight:600;
+            color:{% if disp >= 0 %}var(--green){% else %}var(--red){% endif %}">
+          {% if disp < 0 %}-{% endif %}${{ "{:,.2f}".format(disp | abs) }}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="icon">◈</div>
+  No investment transfers recorded for {{ year }} yet.
+  <br><a href="/investments/overview" style="color:var(--navy)">← Back to Overview</a>
+</div>
+{% endif %}
+
+{% endblock %}

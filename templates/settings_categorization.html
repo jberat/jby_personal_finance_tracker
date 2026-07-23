@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Categorization — Personal Financial Tracker{% endblock %}
+{% block page_title %}Categorization{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div>
+
+  <div class="text-sm text-2" style="margin-bottom:20px">
+    The L1 (parent) and L2 (child) category
+    trees. Add your own below — additions are usable immediately and survive
+    restarts. (Renames/deletes require a manual data edit, since existing
+    transactions reference categories by name.)
+  </div>
+
+  <!-- ═══ Add categories ═══ -->
+  <div class="card" style="margin-bottom:20px;border-color:var(--navy)">
+    <div class="card-header"><h2>Add categories</h2></div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+
+        <div>
+          <div class="text-xs text-3" style="margin-bottom:6px">NEW L1 (needs at least one L2)</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <select id="ac-new-type" class="form-control ac-type" style="font-size:13px">
+              <option value="expense">Expenses</option>
+              <option value="income">Income</option>
+              <option value="transfer">Transfers</option>
+            </select>
+            <input id="ac-new-l1" class="form-control" placeholder="New L1 name…" style="font-size:13px">
+            <input id="ac-new-l2s" class="form-control"
+                   placeholder="L2 name(s) — comma-separate for several…" style="font-size:13px">
+            <button class="btn btn-primary btn-sm" id="ac-new-save" style="align-self:flex-start">Add L1 + L2s</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-xs text-3" style="margin-bottom:6px">ADD L2s TO AN EXISTING L1</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <select id="ac-ex-type" class="form-control ac-type" style="font-size:13px">
+              <option value="expense">Expenses</option>
+              <option value="income">Income</option>
+              <option value="transfer">Transfers</option>
+            </select>
+            <select id="ac-ex-l1" class="form-control" style="font-size:13px"></select>
+            <input id="ac-ex-l2s" class="form-control"
+                   placeholder="New L2 name(s) — comma-separate…" style="font-size:13px">
+            <button class="btn btn-primary btn-sm" id="ac-ex-save" style="align-self:flex-start">Add L2s</button>
+          </div>
+        </div>
+
+      </div>
+      <div id="ac-msg" class="text-xs" style="margin-top:10px;min-height:14px"></div>
+    </div>
+  </div>
+
+  {% set sections = [
+    ('income',   'Income',    'green'),
+    ('expense',  'Expenses',  'red'),
+    ('transfer', 'Transfers', 'navy'),
+  ] %}
+
+  {% for type_key, label, color_var in sections %}
+    {% set tree = grouped.get(type_key, {}) %}
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <h2 style="color:var(--{{ color_var }})">{{ label }}</h2>
+        <span class="text-sm text-3">
+          {{ tree | length }} L1 ·
+          {{ tree.values() | map('length') | sum }} L2
+        </span>
+      </div>
+      <div class="card-body" style="padding:0">
+        {% if tree %}
+          <table>
+            <thead>
+              <tr>
+                <th style="width:34%">L1 (Parent)</th>
+                <th>L2 (Children)</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for l1 in tree | sort %}
+              <tr>
+                <td style="font-weight:600;color:var(--text-1);vertical-align:top">{{ l1 }}</td>
+                <td>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    {% for l2 in tree[l1] | sort %}
+                      <span class="pill" style="background:var(--surface-alt);
+                            border:1px solid var(--border);font-size:12px;
+                            color:var(--text-1);padding:3px 9px;border-radius:11px">
+                        {{ l2 }}
+                      </span>
+                    {% endfor %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty-state" style="padding:30px">
+            No {{ label | lower }} categories configured.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+
+</div>
+
+<script>
+const AC_TREE = {{ grouped | tojson }};   // {trx_type: {l1: [l2s]}}
+
+function acMsg(t, ok){const m=document.getElementById('ac-msg');m.textContent=t;m.style.color=ok?'var(--green)':'var(--red)';}
+
+// Populate the existing-L1 dropdown from the selected tree
+function fillExL1(){
+  const type=document.getElementById('ac-ex-type').value;
+  const l1s=Object.keys(AC_TREE[type]||{}).sort();
+  document.getElementById('ac-ex-l1').innerHTML =
+    l1s.map(x=>`<option>${x.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</option>`).join('');
+}
+document.getElementById('ac-ex-type').addEventListener('change', fillExL1);
+fillExL1();
+
+async function acAdd(trx_type, l1, l2sRaw){
+  const l2s = l2sRaw.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!l1){acMsg('L1 name required.',false);return false;}
+  if(!l2s.length){acMsg('At least one L2 required.',false);return false;}
+  const r=await fetch('/api/settings/categories/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trx_type,l1,l2s})});
+  const d=await r.json();
+  if(!d.ok){acMsg(d.error||'Failed.',false);return false;}
+  if(window._txSavedToast)_txSavedToast();   // unified Saved toast (2026-07-05)
+  acMsg(`✓ ${d.new_l1?'New L1 created':'Added to existing L1'} — ${d.added} L2(s) added${d.duplicates?`, ${d.duplicates} already existed`:''} — reloading…`,true);
+  setTimeout(()=>location.reload(),1000);
+  return true;
+}
+
+document.getElementById('ac-new-save').addEventListener('click', ()=>acAdd(
+  document.getElementById('ac-new-type').value,
+  document.getElementById('ac-new-l1').value.trim(),
+  document.getElementById('ac-new-l2s').value));
+
+document.getElementById('ac-ex-save').addEventListener('click', ()=>acAdd(
+  document.getElementById('ac-ex-type').value,
+  document.getElementById('ac-ex-l1').value,
+  document.getElementById('ac-ex-l2s').value));
+</script>
+
+{% endblock %}

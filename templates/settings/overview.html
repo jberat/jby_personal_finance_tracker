@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Overview — Personal Financial Tracker{% endblock %}
+{% block page_title %}Overview{% endblock %}
+{% block back_link %}
+<a href="javascript:history.back()" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div style="max-width:880px">
+
+  <div class="text-sm text-2" style="margin-bottom:22px;line-height:1.7">
+    <strong>Personal Financial Tracker</strong> is a local-first personal
+    finance app. It tracks your money on a
+    <strong>single-entry, transaction-date</strong> basis — import bank
+    activity, review and categorize it, then analyze it with pivots, budgets,
+    and drill-downs.
+  </div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>The core loop</h2></div>
+    <div class="card-body text-sm text-2" style="line-height:1.7">
+      <strong>Import → Review → Approve → Analyze.</strong> Bank CSVs (checking
+      + credit cards) upload via Tools → Import; rows land in the Review Queue
+      with auto-categorization, vendor cleanup, duplicate flagging (overlapping
+      date ranges are safe — dupes are caught against everything already
+      imported), and auto-skip suggestions for CC payments/Venmo. Approve
+      each row and it becomes an active transaction. Manual entry covers
+      Venmo/cash. Every list supports inline editing (dates, category, amount,
+      vendor, notes, tags), and mistakes are recoverable: deleted rows go to
+      <a href="/trash" style="color:var(--navy)">Trash</a>, whole imports can
+      be undone, splits can be un-split.
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>Structure &amp; accuracy rules</h2></div>
+    <div class="card-body text-sm text-2" style="line-height:1.7">
+      Transactions carry a <strong>type</strong> (expense / income / transfer)
+      and an <strong>L1 / L2 category</strong> (tree lives on the Categorization
+      page — you can add L1s/L2s yourself there). Credits/refunds are negative
+      expenses (they render green). <strong>Splits</strong> divide one bank
+      charge into children that must sum exactly to the parent — useful for
+      splitting a mixed charge across categories (button on any transaction
+      page). Guard rails prevent the dangerous stuff: split children can't be
+      deleted directly, and linked rows are protected.
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>Receipts</h2></div>
+    <div class="card-body text-sm text-2" style="line-height:1.7">
+      Drop files (photo, PDF, screenshot — incl. foreign-currency receipts)
+      into the inbox folder, hit <strong>Scan inbox</strong>, then review
+      matches one at a time with keyboard shortcuts. Nothing files without
+      your confirm; confirming moves + renames the file into
+      <code>receipts/filed/&lt;year&gt;/&lt;L1&gt;/&lt;L2&gt;/&lt;month&gt;/</code>
+      and saves the path. Duplicates get a red banner (discard to a
+      recoverable trash, or keep as a second copy). Orphans (unmatched) get
+      the same one-at-a-time review with vendor/amount (±10%) search. Foreign
+      receipts match by date + the exchange rates set under Assumptions.
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>Analysis &amp; tools</h2></div>
+    <div class="card-body text-sm text-2" style="line-height:1.7">
+      Dashboard (YTD cards, pending badges), Expenses/Income overview pivots
+      (month × category, click into L2s), by-vendor drill-downs, Budget Values
+      + Actuals vs. Budget, and an experimental Investments module (accounts,
+      lots, transfers, returns). The
+      <a href="/tools" style="color:var(--navy)">Tools</a> section holds
+      the operational utilities — import, receipts, data cleanup
+      (vendor/tag/duplicate/receipt hygiene, one item at a time) — each
+      explained on the All Tools page; pick which show in the sidebar under
+      Tools Menu.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Under the hood</h2></div>
+    <div class="card-body text-sm text-2" style="line-height:1.7">
+      Flask + SQLite, local-only, password login (change it under
+      Security; recovery = the <code>.app_password</code> file next to the
+      app). Your data lives entirely on your machine — back up the app folder
+      (code, database, receipts) however you prefer, e.g. a private git repo
+      or synced drive.
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

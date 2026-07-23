@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Payroll — Personal Financial Tracker{% endblock %}
+{% block page_title %}Payroll (gross-up your paychecks){% endblock %}
+
+{% block content %}
+
+{# ── About payroll reconciliation ──────────────────────────────────── #}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header"><h2>About payroll reconciliation</h2></div>
+  <div class="card-body">
+    <div class="text-sm" style="line-height:1.65;max-width:900px">
+      <p style="margin:0 0 10px">
+        Your bank import only shows the <strong>net</strong> direct deposit —
+        the number left after your employer withheld taxes and pre-tax
+        deductions. That understates what you actually earned and hides where
+        a third or more of your pay went. This tool books each paycheck at
+        <strong>gross</strong>: it splits the deposit into your full wages
+        (income), offsetting lines for federal/state tax, FICA, and pre-tax
+        health premiums, and a <em>transfer</em> for any 401k/retirement
+        contribution — that one is your own money moving into your retirement
+        account (and it can sync straight into Investments), not income lost.
+        Post-tax lines get the same care: <strong>Roth / post-tax
+        retirement</strong> is also a transfer into your retirement account
+        (savings, just taxed first), while a <strong>garnishment or other
+        post-tax deduction</strong> books as contra-income — money you earned
+        that was then taken. The lines still sum to net, so your cash totals
+        don't change — but your income pages now show real earnings and real
+        taxes paid.
+      </p>
+      <p style="margin:0">
+        Two ways in, same result. If your employer runs Gusto, upload the
+        Payroll Journal Report CSV and every pay period parses automatically.
+        Otherwise, type the numbers off any paystub — one paycheck at a time,
+        or a single year-to-date entry if you'd rather true-up annually.
+        Every reconciliation is saved as a draft first, shows you exactly
+        what it will book, and can be undone later.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin-bottom:16px">
+
+  {# ── Path 1: Gusto CSV upload ───────────────────────────────────── #}
+  <div class="card" id="payroll-dropzone" style="margin:0">
+    <div class="card-header">
+      <h2>Import a Gusto CSV</h2>
+      <span class="text-sm text-3">Payroll Journal Report</span>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="/tools/payroll/upload"
+            enctype="multipart/form-data">
+        <div class="form-group">
+          <label class="form-label">CSV file</label>
+          <input class="form-control" type="file" name="csv" id="payroll-csv-input"
+                 accept=".csv,.txt" required>
+        </div>
+        <button class="btn btn-primary" type="submit">Parse + review</button>
+      </form>
+      <script>
+        // Shared drag & drop (initDropzone, static/js/shared.js): the whole
+        // card accepts a dropped .csv/.txt — assigns the file only, no
+        // auto-submit; Parse + review is still the explicit action.
+        initDropzone(document.getElementById('payroll-dropzone'),
+                     document.getElementById('payroll-csv-input'));
+      </script>
+      <div class="text-xs text-3" style="margin-top:12px;line-height:1.6">
+        In Gusto: Reports → Payroll Journal Report → CSV. The file auto-saves
+        to <code>imports/payroll/</code> for permanent import history, so
+        it's safe to delete the source after upload.
+      </div>
+    </div>
+  </div>
+
+  {# ── Path 2: manual paystub true-up ─────────────────────────────── #}
+  <div class="card" style="margin:0">
+    <div class="card-header">
+      <h2>Enter a paystub manually</h2>
+      <span class="text-sm text-3">any payroll provider</span>
+    </div>
+    <div class="card-body">
+      <div class="text-sm text-2" style="line-height:1.6;margin-bottom:12px">
+        No Gusto? Type the numbers straight off a paystub — gross, the
+        withholdings, pre-tax deductions, net. Works per paycheck (links to
+        the imported deposit) or as a single YTD true-up for the whole year.
+      </div>
+      <a class="btn btn-primary" href="/tools/payroll/manual">Open true-up form →</a>
+    </div>
+  </div>
+
+</div>
+
+{# ── Reconciliations table ─────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <h2 style="margin-right:auto">Reconciliations</h2>
+    <div style="display:flex;gap:4px;border:1px solid var(--border);border-radius:var(--radius);padding:2px">
+      <a href="/tools/payroll?status=draft" class="btn btn-ghost btn-sm"
+         style="{% if status == 'draft' %}background:var(--navy);color:white{% else %}color:var(--text-2){% endif %};border:none">
+        Open drafts
+        {% set open_n = counts.draft + counts.undone %}
+        {% if open_n %}<span style="margin-left:4px;opacity:0.7">{{ open_n }}</span>{% endif %}
+      </a>
+      <a href="/tools/payroll?status=reconciled" class="btn btn-ghost btn-sm"
+         style="{% if status == 'reconciled' %}background:var(--navy);color:white{% else %}color:var(--text-2){% endif %};border:none">
+        Reconciled
+        {% if counts.reconciled %}<span style="margin-left:4px;opacity:0.7">{{ counts.reconciled }}</span>{% endif %}
+      </a>
+      <a href="/tools/payroll?status=all" class="btn btn-ghost btn-sm"
+         style="{% if status == 'all' %}background:var(--navy);color:white{% else %}color:var(--text-2){% endif %};border:none">
+        All
+      </a>
+    </div>
+  </div>
+  <div class="card-body" style="padding:0">
+    {% if reconciliations %}
+    <table style="width:100%">
+      <thead>
+        <tr>
+          <th>Period</th>
+          <th>Pay date</th>
+          <th>Entry</th>
+          <th class="right">Gross</th>
+          <th class="right">Net</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in reconciliations %}
+        <tr>
+          <td class="mono">
+            {% if r.entry_mode == 'ytd' %}YTD → {{ r.pay_period_end }}
+            {% else %}{{ r.pay_period_start or '—' }} — {{ r.pay_period_end }}{% endif %}
+          </td>
+          <td class="mono">{{ r.pay_date }}</td>
+          <td>
+            {% if r.entry_mode == 'gusto' %}<span class="pill">Gusto CSV</span>
+            {% elif r.entry_mode == 'ytd' %}<span class="pill">YTD true-up</span>
+            {% else %}<span class="pill">manual</span>{% endif %}
+          </td>
+          <td class="right">{{ (r.gross_earnings)|amt }}</td>
+          <td class="right">{{ (r.net_pay)|amt }}</td>
+          <td>
+            {% if r.status == 'draft' %}
+              <span class="pill" style="background:var(--amber-bg);color:var(--amber)">draft</span>
+            {% elif r.status == 'reconciled' %}
+              <span class="pill" style="background:var(--green-bg);color:var(--green)">reconciled</span>
+            {% elif r.status == 'undone' %}
+              <span class="pill" style="background:var(--red-bg);color:var(--red)">undone</span>
+            {% else %}
+              <span class="pill">{{ r.status }}</span>
+            {% endif %}
+          </td>
+          <td><a href="/tools/payroll/{{ r.id }}" class="btn btn-ghost btn-sm">Open</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state">
+        {% if status == 'reconciled' %}
+          No reconciled paychecks yet.
+        {% elif status == 'draft' %}
+          No open drafts. Upload a Gusto CSV or enter a paystub to start.
+        {% else %}
+          No reconciliations yet — start with either card above.
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Import history ────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header">
+    <h2>Import history</h2>
+    <span class="text-sm text-3">{{ imports | length }} upload{% if imports | length != 1 %}s{% endif %}</span>
+  </div>
+  <div class="card-body" style="padding:0">
+    {% if imports %}
+    <table style="width:100%">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Uploaded</th>
+          <th>Periods start</th>
+          <th>Periods end</th>
+          <th class="right">Periods</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for im in imports %}
+        <tr>
+          <td class="text-sm" style="white-space:nowrap">{{ im.filename }}</td>
+          <td class="text-sm mono" style="white-space:nowrap">{{ im.uploaded_at[:10] }}</td>
+          <td class="text-sm mono" style="white-space:nowrap">{{ im.period_start or "—" }}</td>
+          <td class="text-sm mono" style="white-space:nowrap">{{ im.period_end or "—" }}</td>
+          <td class="right text-sm">{{ im.period_count }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state">No CSVs uploaded yet.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

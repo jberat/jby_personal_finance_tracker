@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Paystub true-up — Personal Financial Tracker{% endblock %}
+{% block page_title %}Paystub true-up{% endblock %}
+{% block back_link %}
+<a href="/tools/payroll" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back to Payroll">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="text-sm text-3" style="margin-bottom:14px;line-height:1.6;max-width:860px">
+  Type the numbers straight off a paystub. Everything except gross and net is
+  optional — the form checks live that
+  <strong>gross − taxes − pre-tax − post-tax − other = net</strong>. Saving creates a
+  draft; nothing books until you confirm on the next page.
+</div>
+
+<div class="card" style="max-width:720px">
+  <div class="card-body">
+    <form method="POST" action="/tools/payroll/draft" id="manual-form">
+
+      {# ── Basis toggle ─────────────────────────────────────────── #}
+      <div class="form-group">
+        <label class="form-label">Entry basis</label>
+        <div style="display:flex;gap:18px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="entry_mode" value="manual" checked
+                   onchange="modeChanged()">
+            <span class="text-sm">One paycheck</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="entry_mode" value="ytd"
+                   onchange="modeChanged()">
+            <span class="text-sm">Year-to-date totals (annual true-up)</span>
+          </label>
+        </div>
+        <div class="text-xs text-3" style="margin-top:6px;line-height:1.55" id="mode-hint">
+          One paycheck: if the matching net deposit is already imported from
+          your bank, the tool splits it in place.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" id="date-label">Pay date</label>
+        <input class="form-control" type="date" name="pay_date" id="f-pay_date" required
+               style="max-width:220px">
+      </div>
+
+      {# ── Amounts ──────────────────────────────────────────────── #}
+      <div class="detail-grid" style="margin-top:6px">
+        {% for name, label, sign, req in [
+          ('gross_earnings',    'Gross pay',                          '+', True),
+          ('tax_federal',       'Federal income tax withheld',        '−', False),
+          ('tax_state',         'State income tax withheld',          '−', False),
+          ('tax_ss',            'FICA (Social Security + Medicare)',  '−', False),
+          ('tax_other',         'Other payroll taxes (PFML / SDI / local)', '−', False),
+          ('pretax_retirement', 'Pre-tax retirement (401k etc.)',     '−', False),
+          ('pretax_other',      'Health / other pre-tax deductions',  '−', False),
+          ('posttax_roth',      'Roth / post-tax retirement',         '−', False),
+          ('posttax_garnish',   'Garnishment / other post-tax deduction', '−', False),
+          ('other_plug',        'Other adjustment (plug)',            '−', False),
+        ] %}
+        <div class="detail-row">
+          <span class="detail-label">{{ label }}</span>
+          <span class="detail-value" style="display:flex;gap:6px;align-items:center">
+            <span style="color:var(--text-3);font-weight:600;width:14px">{{ sign }}</span>
+            <span style="color:var(--text-3)">$</span>
+            <input class="form-control form-control-inline tie-input" type="number"
+                   step="0.01" min="0" id="f-{{ name }}" name="{{ name }}"
+                   style="width:140px" {% if req %}required{% endif %}>
+          </span>
+        </div>
+        {% endfor %}
+        <div class="detail-row" style="background:var(--surface-alt)">
+          <span class="detail-label" style="font-weight:600">Net pay (what hit the bank)</span>
+          <span class="detail-value" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span style="color:var(--text-3);font-weight:600;width:14px">=</span>
+            <span style="color:var(--text-3)">$</span>
+            <input class="form-control form-control-inline tie-input" type="number"
+                   step="0.01" min="0" id="f-net_pay" name="net_pay"
+                   style="width:140px;font-weight:600" required>
+            <span id="tie-status" class="text-sm"></span>
+          </span>
+        </div>
+      </div>
+
+      <div class="text-xs text-3" style="margin-top:10px;line-height:1.55">
+        FICA is one combined line here (Social Security 6.2% + Medicare 1.45%
+        — paystubs often show them together). If your stub splits them, add
+        them up. Retirement — pre-tax 401k <strong>and</strong> Roth/post-tax
+        alike — books as a <strong>transfer</strong> into your own retirement
+        account (it's savings, not income lost; if you have both, two transfer
+        rows share the account below). <em>Garnishment / other post-tax</em>
+        is money you earned that was taken after tax — it books as
+        contra-income under its own label, so gross stays truthful. The
+        <em>Other adjustment</em> field is a plug for anything else on the
+        stub (rounding, one-off lines) so the math ties; a negative value
+        works for extra income.
+      </div>
+
+      <div class="form-group" style="margin-top:16px">
+        <label class="form-label">Retirement account (Investments) — for the pre-tax retirement and Roth amounts</label>
+        <select class="form-control" name="retirement_account" style="max-width:360px">
+          <option value="" selected>auto — pick my retirement account</option>
+          {% for a in inv_accounts %}
+          <option value="{{ a.name }}">{{ a.name }} ({{ a.inv_group or 'Alternatives' }})</option>
+          {% endfor %}
+          <option value="none">none — skip Investments sync</option>
+        </select>
+        <div class="text-xs text-3" style="margin-top:6px;line-height:1.55">
+          {% if inv_accounts %}
+            When targeted, executing also records a contribution for that
+            amount in the Investments account on the pay date (via the normal
+            Sync). "Auto" picks your single retirement account.
+          {% else %}
+            No Investments accounts exist yet. If you want your 401k tracked
+            in Investments, set the account up first (Investments →
+            Overview), then come back — see the handbook's payroll section.
+            Without one, the transfer still books; nothing lands in
+            Investments.
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:16px">
+        <label class="form-label">Note (optional)</label>
+        <input class="form-control" type="text" name="note"
+               placeholder="e.g. which employer / which stub…">
+      </div>
+
+      <div style="display:flex;gap:12px;margin-top:14px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary" type="submit">Save draft →</button>
+        <span class="text-xs text-3">Next page: match the bank deposit (single
+          paycheck) and confirm what gets booked.</span>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Live tie check: gross − taxes − pretax − plug vs net.
+function num(id) {
+  const el = document.getElementById('f-' + id);
+  return el ? parseFloat(el.value || '0') || 0 : 0;
+}
+function refreshTie() {
+  const calc = num('gross_earnings') - num('tax_federal') - num('tax_state')
+             - num('tax_ss') - num('tax_other')
+             - num('pretax_retirement') - num('pretax_other')
+             - num('posttax_roth') - num('posttax_garnish')
+             - num('other_plug');
+  const net = num('net_pay');
+  const st = document.getElementById('tie-status');
+  if (!num('gross_earnings') && !net) { st.textContent = ''; return; }
+  const delta = calc - net;
+  if (Math.abs(delta) <= 0.02) {
+    st.style.color = 'var(--green)';
+    st.textContent = '✓ ties';
+  } else {
+    st.style.color = 'var(--red)';
+    st.textContent = '✗ off by $' + Math.abs(delta).toFixed(2)
+      + ' (math says $' + calc.toFixed(2) + ') — adjust, or put the difference in Other adjustment';
+  }
+}
+document.querySelectorAll('.tie-input').forEach(el =>
+  el.addEventListener('input', refreshTie));
+refreshTie();
+
+// Mode toggle: label + helper text. YTD books standalone rows (a YTD entry
+// spans many deposits, so there's no single deposit to split).
+function modeChanged() {
+  const ytd = document.querySelector('input[name="entry_mode"]:checked').value === 'ytd';
+  document.getElementById('date-label').textContent =
+    ytd ? 'YTD as-of date (totals through this date)' : 'Pay date';
+  document.getElementById('mode-hint').textContent = ytd
+    ? 'YTD mode books the gross-up rows standalone — a year of pay spans many '
+      + 'deposits, so nothing is split. Enter the YTD numbers from your last '
+      + 'paystub of the period.'
+    : 'One paycheck: if the matching net deposit is already imported from '
+      + 'your bank, the tool splits it in place.';
+}
+
+// Allow negative plug (extra income) — clear the min attr set for the others.
+document.getElementById('f-other_plug').removeAttribute('min');
+</script>
+{% endblock %}

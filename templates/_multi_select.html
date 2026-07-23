@@ -1,0 +1,56 @@
+{# ── Multi-select dropdown filter ────────────────────────────────────────
+   Renders a button + dropdown panel of checkbox options. Submits via the
+   parent form's submit().
+
+   Args:
+     field_name  : query-string field (e.g. 'l1s' or 'l2s'); checkbox name
+     button_label: text on the closed button (e.g. 'L1 Categories')
+     options     : iterable of option strings
+     selected    : iterable of currently-selected option strings
+     parent_map  : (optional) dict {option → parent_l1} to enable L2 dependency
+                   on the L1 multi-select. Only relevant when field_name='l2s'.
+─────────────────────────────────────────────────────────────────────────#}
+{% macro multi_select(field_name, button_label, options, selected, parent_map=None) %}
+  {% set selected_set = selected | reject('equalto', '') | list %}
+  <div class="ms-wrap" data-msfor="{{ field_name }}" data-mslabel="{{ button_label }}">
+    <button type="button" class="ms-btn {% if selected_set|length > 0 %}has-selection{% endif %}">
+      {{ button_label }}: <span class="ms-summary">All</span>
+      <span class="ms-caret">▼</span>
+    </button>
+    <div class="ms-panel" hidden>
+      <div class="ms-actions">
+        <button type="button" class="ms-action-btn" data-msaction="all">All</button>
+        <button type="button" class="ms-action-btn" data-msaction="none">Clear</button>
+      </div>
+      {# Type-to-filter: narrows the checkbox list as you
+         type — any word starting with the query matches. #}
+      <div style="padding:6px 8px 2px">
+        <input type="text" class="ms-search form-control" placeholder="Type to filter…"
+               autocomplete="off" style="width:100%;font-size:12px;padding:4px 8px">
+      </div>
+      <div class="ms-options">
+        {% for opt in options %}
+          {# Options are plain strings (L1/L2) OR {v: value, t: label} dicts
+             (accounts — value is the id, label is the name; 2026-07-05).
+             parent_map[opt] is a list of parent L1s (same L2 name can appear
+             under multiple L1s, e.g. "Miscellaneous"). Render as a
+             comma-separated data attribute the JS can split. #}
+          {% set oval = opt.v if opt is mapping else opt %}
+          {% set olab = opt.t if opt is mapping else opt %}
+          <label class="ms-option"
+                 {% if parent_map and parent_map.get(olab) %}data-parent="{{ parent_map.get(olab) | join(',') }}"{% endif %}>
+            <input type="checkbox" name="{{ field_name }}" value="{{ oval }}"
+                   data-label="{{ olab }}"
+                   {% if (oval|string) in (selected_set|map('string')|list) %}checked{% endif %}>
+            <span>{{ olab }}{% if parent_map and parent_map.get(olab) %}
+              <span class="text-3" style="font-size:11px;margin-left:4px">({{ parent_map.get(olab) | join(', ') }})</span>
+            {% endif %}</span>
+          </label>
+        {% endfor %}
+      </div>
+      <div class="ms-footer">
+        <button type="button" class="ms-apply">Apply</button>
+      </div>
+    </div>
+  </div>
+{% endmacro %}

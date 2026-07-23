@@ -1,0 +1,1789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personal Financial Tracker — The Handbook</title>
+<style>
+/* ─── Design tokens: light default, dark via prefers-color-scheme ───────── */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-alt: #eef1f5;
+  --text: #1c2733;
+  --text-2: #46586a;
+  --text-3: #74879a;
+  --border: #dde3ea;
+  --border-mid: #c3ccd6;
+  --accent: #1f4e79;
+  --accent-soft: #e8f0f8;
+  --green: #1e7d43;
+  --green-bg: #e6f4ec;
+  --amber: #8a5a00;
+  --amber-bg: #fdf3dd;
+  --red: #b03030;
+  --red-bg: #fbe9e9;
+  --code-bg: #eef1f5;
+  --pre-bg: #21262d;
+  --pre-text: #e6edf3;
+  --shadow: 0 1px 3px rgba(20,30,40,0.08);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181d;
+    --surface: #1c2229;
+    --surface-alt: #232a33;
+    --text: #e4e9ee;
+    --text-2: #aeb9c4;
+    --text-3: #7c8a98;
+    --border: #2e3742;
+    --border-mid: #43505e;
+    --accent: #6ea8dc;
+    --accent-soft: #1e2c3a;
+    --green: #55b97e;
+    --green-bg: #17301f;
+    --amber: #d9a94a;
+    --amber-bg: #33280f;
+    --red: #e07777;
+    --red-bg: #3a1c1c;
+    --code-bg: #232a33;
+    --pre-bg: #10141a;
+    --pre-text: #dbe4ec;
+    --shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--font); font-size: 15.5px; line-height: 1.65;
+}
+
+/* ─── Layout: fixed sidebar + content ───────────────────────────────────── */
+.layout { display: flex; min-height: 100vh; }
+nav.side {
+  width: 285px; flex-shrink: 0; position: sticky; top: 0; height: 100vh;
+  overflow-y: auto; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 18px 14px 40px;
+}
+nav.side .brand { padding: 6px 10px 14px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+nav.side .brand .t { font-weight: 700; font-size: 15px; letter-spacing: 0.01em; }
+nav.side .brand .s { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+nav.side a {
+  display: block; padding: 5px 10px; margin: 1px 0; border-radius: 7px;
+  color: var(--text-2); text-decoration: none; font-size: 13.2px; line-height: 1.4;
+}
+nav.side a:hover { background: var(--surface-alt); color: var(--text); }
+nav.side a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav.side a .n { display: inline-block; width: 24px; color: var(--text-3); font-size: 11.5px; font-family: var(--mono); }
+main {
+  flex: 1; min-width: 0; max-width: 880px; padding: 34px 48px 120px; margin: 0 auto;
+}
+
+/* Mobile */
+#navToggle { display: none; }
+@media (max-width: 900px) {
+  .layout { display: block; }
+  nav.side { position: static; width: auto; height: auto; border-right: none;
+             border-bottom: 1px solid var(--border); }
+  nav.side .links { display: none; }
+  nav.side.open .links { display: block; }
+  #navToggle { display: inline-block; margin-top: 8px; background: var(--accent-soft);
+               color: var(--accent); border: 1px solid var(--border); border-radius: 7px;
+               padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: var(--font); }
+  main { padding: 24px 20px 80px; }
+}
+
+/* ─── Typography ────────────────────────────────────────────────────────── */
+h1 { font-size: 30px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
+.subtitle { color: var(--text-3); font-size: 15px; margin-bottom: 30px; }
+section { margin-bottom: 56px; }
+section > h2 {
+  font-size: 23px; margin: 0 0 4px; padding-top: 26px;
+  border-top: 2px solid var(--border); letter-spacing: -0.01em;
+}
+section > h2 .secno { color: var(--text-3); font-family: var(--mono); font-size: 15px; margin-right: 8px; }
+h3 { font-size: 17px; margin: 26px 0 8px; }
+h4 { font-size: 15px; margin: 20px 0 6px; }
+p { margin: 10px 0; }
+ul, ol { margin: 8px 0; padding-left: 26px; }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+code {
+  font-family: var(--mono); font-size: 0.88em; background: var(--code-bg);
+  padding: 1.5px 5px; border-radius: 5px; border: 1px solid var(--border);
+}
+pre {
+  background: var(--pre-bg); color: var(--pre-text); padding: 14px 16px;
+  border-radius: 10px; overflow-x: auto; font-family: var(--mono);
+  font-size: 12.8px; line-height: 1.55; position: relative;
+}
+pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+kbd {
+  font-family: var(--mono); font-size: 0.82em; background: var(--surface);
+  border: 1px solid var(--border-mid); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 6px;
+}
+.ui { /* references to on-screen labels */
+  font-weight: 600; color: var(--text);
+  background: var(--surface-alt); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0 5px; font-size: 0.93em; white-space: nowrap;
+}
+table.plain { border-collapse: collapse; width: 100%; font-size: 14px; margin: 12px 0; }
+table.plain th, table.plain td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+table.plain th { background: var(--surface-alt); font-size: 13px; }
+
+/* ─── Boxes ─────────────────────────────────────────────────────────────── */
+.box { border-radius: 10px; padding: 13px 16px; margin: 14px 0; font-size: 14.2px; border: 1px solid; }
+.box .bt { display: block; font-weight: 700; font-size: 11.5px; letter-spacing: 0.09em;
+           text-transform: uppercase; margin-bottom: 5px; }
+.box.warn  { background: var(--amber-bg); border-color: var(--amber); }
+.box.warn .bt { color: var(--amber); }
+.box.check { background: var(--green-bg); border-color: var(--green); }
+.box.check .bt { color: var(--green); }
+.box.danger { background: var(--red-bg); border-color: var(--red); }
+.box.danger .bt { color: var(--red); }
+.box.note  { background: var(--accent-soft); border-color: var(--accent); }
+.box.note .bt { color: var(--accent); }
+
+/* ─── Numbered SOP steps ────────────────────────────────────────────────── */
+ol.steps { counter-reset: st; padding-left: 0; margin: 14px 0; }
+ol.steps > li {
+  list-style: none; counter-increment: st; position: relative;
+  padding: 10px 14px 10px 52px; margin: 8px 0; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+}
+ol.steps > li::before {
+  content: counter(st); position: absolute; left: 14px; top: 11px;
+  width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
+  color: #fff; font-weight: 700; font-size: 13px; display: flex;
+  align-items: center; justify-content: center;
+}
+
+/* ─── Collapsible subsections ───────────────────────────────────────────── */
+details.sub {
+  border: 1px solid var(--border); border-radius: 10px; margin: 14px 0;
+  background: var(--surface); box-shadow: var(--shadow);
+}
+details.sub > summary {
+  cursor: pointer; padding: 11px 16px; font-weight: 600; font-size: 15px;
+  list-style: none; display: flex; align-items: center; gap: 10px;
+}
+details.sub > summary::-webkit-details-marker { display: none; }
+details.sub > summary::before { content: "+"; color: var(--accent); font-weight: 700; width: 14px; }
+details.sub[open] > summary::before { content: "\2212"; }
+details.sub > .inner { padding: 2px 18px 16px; border-top: 1px solid var(--border); }
+
+/* Copy button on prompt blocks */
+.copywrap { position: relative; }
+.copywrap button.copy {
+  position: absolute; top: 8px; right: 8px; background: var(--surface-alt);
+  color: var(--text-2); border: 1px solid var(--border-mid); border-radius: 6px;
+  padding: 3px 10px; font-size: 11.5px; cursor: pointer; font-family: var(--font);
+}
+.copywrap button.copy:hover { color: var(--text); }
+.toplink { font-size: 12.5px; }
+hr.thin { border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+<nav class="side" id="sidenav">
+  <div class="brand">
+    <div class="t">Personal Financial Tracker</div>
+    <div class="s">The Handbook &mdash; the definitive guide</div>
+    <button id="navToggle" onclick="document.getElementById('sidenav').classList.toggle('open')">Contents</button>
+  </div>
+  <div class="links" id="navlinks">
+    <a href="#what-it-is"><span class="n">1</span>What this is (and is not)</a>
+    <a href="#install"><span class="n">2</span>Install</a>
+    <a href="#first-launch"><span class="n">3</span>First launch &amp; password</a>
+    <a href="#sample-data"><span class="n">4</span>Try it with sample data</a>
+    <a href="#core-loop"><span class="n">5</span>The core monthly loop</a>
+    <a href="#venmo-p2p"><span class="n">5a</span>Venmo &amp; P2P payments</a>
+    <a href="#accounts"><span class="n">5b</span>Adding accounts</a>
+    <a href="#categories"><span class="n">6</span>Categories &amp; auto-categorization</a>
+    <a href="#receipts"><span class="n">7</span>Receipts end-to-end</a>
+    <a href="#budgets"><span class="n">8</span>Budgets &amp; Actuals-vs-Budget</a>
+    <a href="#payroll"><span class="n">9</span>Payroll reconciliation</a>
+    <a href="#tax-estimator"><span class="n">10</span>Tax Estimator</a>
+    <a href="#reconcile-card"><span class="n">11</span>Reconcile Card</a>
+    <a href="#investments"><span class="n">12</span>Investments (experimental)</a>
+    <a href="#exports"><span class="n">13</span>Excel exports</a>
+    <a href="#your-bank"><span class="n">14</span>Adding YOUR bank</a>
+    <a href="#cleanup-trash"><span class="n">15</span>Data Cleanup &amp; Trash</a>
+    <a href="#backups"><span class="n">16</span>Backups &amp; moving computers</a>
+    <a href="#troubleshooting"><span class="n">17</span>Troubleshooting</a>
+    <a href="#about"><span class="n">18</span>About the maker &amp; license</a>
+  </div>
+</nav>
+
+<main>
+
+<h1>The Personal Financial Tracker Handbook</h1>
+<div class="subtitle">
+  Everything about installing, running, and living with PFT — written so you can
+  follow it step by step without guessing. This single file works offline; keep it
+  next to the app and open it any time (it lives at <code>docs/handbook.html</code>
+  in the app folder).
+</div>
+
+<!-- ══════════════════════════ 1 ══════════════════════════ -->
+<section id="what-it-is">
+<h2><span class="secno">1.</span>What this is — and what it is NOT</h2>
+<p>A lot of people run their money life out of a spreadsheet. This tool is meant to replace
+that spreadsheet — or at least be the starting point you reshape, with an AI agent's help,
+until it fits exactly how you think about your finances.</p>
+
+<p><strong>Personal Financial Tracker (PFT)</strong> is a personal finance app that runs
+entirely on your own computer. It is a small web server (Python + Flask) storing
+everything in one SQLite database file (<code>finance.db</code>) in a folder you control.
+You use it in your browser at <code>http://127.0.0.1:5005</code> — an address that only
+your machine can reach.</p>
+
+<p>The workflow it's built around: you download CSV statements from your bank's website,
+import them, review and approve each transaction in a queue, and from then on the app gives
+you clean overviews, budgets, receipt filing, paycheck and card reconciliation, tax
+estimation, and Excel exports.</p>
+
+<h3>What it is NOT</h3>
+<ul>
+  <li><strong>Not a cloud service.</strong> No account, no signup, no sync, no telemetry, no
+    analytics. If you unplug your internet, the app works exactly the same. Your data
+    never leaves your machine unless you copy it somewhere yourself.</li>
+  <li><strong>Not a bank-linking app.</strong> It never connects to your bank. You feed it
+    statement files you downloaded yourself. This is a feature: there are no credentials to
+    leak and no third-party aggregator in the middle.</li>
+  <li><strong>Not financial or tax advice.</strong> It's record-keeping machinery. The Tax
+    Estimator in particular is an estimate with clearly-listed simplifications
+    (<a href="#tax-estimator">section 10</a>) — a CPA or real tax software is ground truth.</li>
+  <li><strong>Not multi-user.</strong> One password, one owner, one household's books.</li>
+</ul>
+
+<div class="box note"><span class="bt">The security model in one paragraph</span>
+The app listens only on <code>127.0.0.1</code> (your own machine), requires a login password,
+and blocks cross-origin browser requests. The password stops someone at your unlocked laptop
+from browsing your finances; it is not internet-facing security, because the app is never on
+the internet. Your real protections are: keep your computer's own login secure, and keep
+backups (<a href="#backups">section 16</a>).</div>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section id="install">
+<h2><span class="secno">2.</span>Install</h2>
+
+<p>Two routes: hand the whole job to an AI assistant (recommended — works even if you've never
+opened a terminal), or do it by hand. Either way you need <strong>Python 3.10 or newer</strong>;
+both routes below handle installing Python if you don't have it.</p>
+
+<details class="sub" open>
+<summary>2a. The fast way: paste this into an AI assistant</summary>
+<div class="inner">
+<p>If you use any AI assistant that can run commands on your computer
+(or walk you through running them), copy the entire block below, fill in the one blank at the
+top, and paste it into a new conversation.</p>
+<div class="copywrap"><pre><code>I want you to install a local web app called Personal Financial Tracker
+on my computer. Here's everything you need to know.
+
+The code lives at: &lt;PASTE THE REPOSITORY URL OR ZIP DOWNLOAD LINK HERE&gt;
+
+My operating system: &lt;macOS / Windows / Linux&gt;
+
+Please do the following, explaining each step as you go. If you can run
+commands directly, run them; if not, give me the exact commands to paste
+and wait for me to report back after each one.
+
+1. Check that Python 3.10+ is installed (python3 --version, or
+   python --version on Windows). If it isn't, help me install it first.
+
+2. Clone or download the repository into a sensible folder in my home
+   directory, e.g. ~/personal-financial-tracker (or
+   %USERPROFILE%\personal-financial-tracker on Windows).
+
+3. Inside that folder, create a Python virtual environment and activate it:
+   - macOS/Linux:  python3 -m venv venv  then  source venv/bin/activate
+   - Windows:      python -m venv venv   then  venv\Scripts\activate
+
+4. Install the dependencies:  pip install -r requirements.txt
+   If anything fails to install, read the error and fix it (common fixes:
+   upgrade pip, or install a system package the error names) rather than
+   skipping the dependency.
+
+5. Start the app:  python3 app.py  (python app.py on Windows)
+
+6. Verify it's running: the terminal should say it's serving on
+   http://127.0.0.1:5005. Open that address in my browser and confirm the
+   app loads. Log in with the temporary password `changeme` (I will
+   change it right away from Docs &amp; Settings → Security inside the app).
+
+7. Tell me how to stop the app (Ctrl+C in the terminal) and how to start
+   it again later (activate the venv, then python3 app.py), and write
+   those two commands down for me in a short note.
+
+Important constraints:
+- This app is local-only and must stay that way. Do not expose it to the
+  network, change the host/port, or install anything beyond
+  requirements.txt.
+- Do not modify any of the app's code during installation.</code></pre></div>
+<p>You'll finish at the login screen. Continue at <a href="#first-launch">section 3</a>.</p>
+</div>
+</details>
+
+<details class="sub">
+<summary>2b. Manual install — macOS, from "open Terminal"</summary>
+<div class="inner">
+<ol class="steps">
+<li><strong>Open Terminal.</strong> Press <kbd>Cmd</kbd>+<kbd>Space</kbd>, type
+  <code>Terminal</code>, press <kbd>Return</kbd>. (Or Applications → Utilities → Terminal.)
+  You get a window with a text prompt — everything below is typed there.</li>
+<li><strong>Check Python.</strong> Type <code>python3 --version</code> and press
+  <kbd>Return</kbd>. You want <code>Python 3.10</code> or newer.
+  <div class="box warn"><span class="bt">If Python is missing or too old</span>
+  Download the macOS installer from
+  <code>https://www.python.org/downloads/</code>, run it like any app installer, then close
+  and reopen Terminal and run <code>python3 --version</code> again. (If you use Homebrew:
+  <code>brew install python</code> also works.) The very first time you run
+  <code>python3</code> on a fresh Mac, macOS may pop up an offer to install "command line
+  developer tools" — accept it.</div></li>
+<li><strong>Get the code.</strong> Either
+  <pre><code>git clone https://github.com/jberat/jby_personal_finance_tracker.git ~/personal-financial-tracker</code></pre>
+  or download the ZIP from the repository page in your browser, double-click to unzip, and
+  move the folder to your home folder, renamed <code>personal-financial-tracker</code>.</li>
+<li><strong>Create and activate a virtual environment</strong> (keeps the app's Python
+  packages isolated from everything else):
+  <pre><code>cd ~/personal-financial-tracker
+python3 -m venv venv
+source venv/bin/activate</code></pre>
+  <div class="box check"><span class="bt">Checkpoint</span>
+  Your prompt now starts with <code>(venv)</code>. If it doesn't, the
+  <code>source</code> line didn't run — re-run it exactly as written.</div></li>
+<li><strong>Install dependencies:</strong>
+  <pre><code>pip install -r requirements.txt</code></pre>
+  This prints a lot of lines and ends without an error. If it errors, run
+  <code>pip install --upgrade pip</code> and retry; if it still errors, paste the whole
+  message into an AI assistant.</li>
+<li><strong>Run it:</strong>
+  <pre><code>python3 app.py</code></pre>
+  Leave this Terminal window open — it <em>is</em> the app.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  The terminal prints a <code>[pft] STARTING</code> line and then a line saying it's serving
+  on <code>http://127.0.0.1:5005</code>. Open that address in your browser: you should see
+  the <strong>login page</strong> with a single password field. If the browser says "can't
+  connect", the app isn't running — look at the terminal for an error.</div></li>
+</ol>
+<p><strong>Optional, nicer startup (macOS/Linux):</strong> the repo ships two helper scripts.
+<code>./start.sh</code> starts the app in the background (logging to <code>app.log</code>) and
+opens your browser; <code>./restart.sh</code> kills any old copy — including anything squatting
+on port 5005 — and starts fresh. If they aren't executable yet, run
+<code>chmod +x start.sh restart.sh</code> once. Note these scripts find Python on their own and
+don't use the venv; if you installed inside a venv, prefer <code>python3 app.py</code> with the
+venv active, or install the requirements globally too.</p>
+</div>
+</details>
+
+<details class="sub">
+<summary>2c. Manual install — Windows, from "open PowerShell"</summary>
+<div class="inner">
+<ol class="steps">
+<li><strong>Open PowerShell.</strong> Press the <kbd>Windows</kbd> key, type
+  <code>PowerShell</code>, press <kbd>Enter</kbd>. A blue-ish window with a text prompt opens.</li>
+<li><strong>Check Python.</strong> Type <code>python --version</code> and press
+  <kbd>Enter</kbd>. You want 3.10+.
+  <div class="box warn"><span class="bt">If Python is missing (or the Microsoft Store opens)</span>
+  Download the installer from <code>https://www.python.org/downloads/</code>. On the
+  installer's <em>first screen</em>, check the box <strong>"Add Python to PATH"</strong> —
+  this is the single most commonly missed step on Windows. Then close and reopen PowerShell
+  and run <code>python --version</code> again.</div></li>
+<li><strong>Get the code.</strong> Clone with git if you have it, or download the ZIP from the
+  repository page, right-click → Extract All, and put the folder at
+  <code>C:\Users\&lt;you&gt;\personal-financial-tracker</code>.</li>
+<li><strong>Create and activate a virtual environment:</strong>
+  <pre><code>cd $env:USERPROFILE\personal-financial-tracker
+python -m venv venv
+venv\Scripts\activate</code></pre>
+  <div class="box warn"><span class="bt">If activation is blocked</span>
+  PowerShell may refuse to run the activation script ("running scripts is disabled"). Fix:
+  run <code>Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser</code>,
+  answer <code>Y</code>, then run <code>venv\Scripts\activate</code> again. Your prompt
+  should now start with <code>(venv)</code>.</div></li>
+<li><strong>Install dependencies:</strong>
+  <pre><code>pip install -r requirements.txt</code></pre></li>
+<li><strong>Run it:</strong>
+  <pre><code>python app.py</code></pre>
+  Leave the window open, then browse to <strong>http://127.0.0.1:5005</strong>.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  You see the login page with one password field. If not, read the PowerShell window for
+  the error and hand it to an AI assistant.</div></li>
+</ol>
+<p>The <code>start.sh</code>/<code>restart.sh</code> helper scripts are macOS/Linux shell
+scripts and don't run on Windows — on Windows you start the app with
+<code>python app.py</code> and stop it with <kbd>Ctrl</kbd>+<kbd>C</kbd>.</p>
+</div>
+</details>
+
+<details class="sub">
+<summary>2d. Starting and stopping, forever after</summary>
+<div class="inner">
+<ul>
+  <li><strong>Stop:</strong> press <kbd>Ctrl</kbd>+<kbd>C</kbd> in the terminal running the app
+    (or close that terminal). Stopping never loses data — everything is written to
+    <code>finance.db</code> as you go.</li>
+  <li><strong>Start (macOS/Linux):</strong> open a terminal in the app folder and run
+    <code>./start.sh</code>, or activate the venv and run <code>python3 app.py</code>.</li>
+  <li><strong>Restart after a glitch (macOS/Linux):</strong> <code>./restart.sh</code> — it
+    force-kills anything on port 5005 first, so it fixes "address already in use" too.</li>
+  <li><strong>Start (Windows):</strong> open PowerShell, <code>cd</code> into the folder,
+    <code>venv\Scripts\activate</code>, then <code>python app.py</code>.</li>
+</ul>
+<p>Optional but recommended: the receipts pipeline's OCR and PDF handling use external tools on
+some systems — see <a href="#receipts">section 7</a> for what to install if receipt scanning
+complains.</p>
+</div>
+</details>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section id="first-launch">
+<h2><span class="secno">3.</span>First launch — and changing the password</h2>
+
+<p>The first time the app runs it creates an empty <code>finance.db</code>, seeds a generic
+two-level category tree, and creates three placeholder accounts you can rename later:
+<span class="ui">My Checking</span>, <span class="ui">My Credit Card</span>, and
+<span class="ui">Venmo</span>. The dashboard will look bare — that's normal until your first
+import.</p>
+
+<h3>Log in</h3>
+<ol class="steps">
+<li>Open <code>http://127.0.0.1:5005</code> in your browser. You see a login page with a
+  single password field (no username).</li>
+<li>Type <code>changeme</code> and submit.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  You land on the <strong>Dashboard</strong>, with a sidebar on the left listing Dashboard,
+  Review Queue, Trash, Income, Expenses, Investments, Tools, and Docs &amp; Settings. If you
+  instead see "Wrong password.", you typed something other than <code>changeme</code> — it's
+  all lowercase, no spaces.</div></li>
+</ol>
+
+<h3>Change the password — do this now</h3>
+<ol class="steps">
+<li>In the left sidebar, click <span class="ui">Docs &amp; Settings</span> to expand the group,
+  then click <span class="ui">Security</span>.</li>
+<li>On the <strong>Change password</strong> card, fill in
+  <span class="ui">Current password</span> (that's <code>changeme</code>),
+  <span class="ui">New password</span>, and <span class="ui">Confirm new password</span>.</li>
+<li>Click <span class="ui">Change password</span>.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  A green "✓ Changed — use it on your next login" message appears next to the button and the
+  fields clear. The change is effective immediately — no restart needed. If you see a red
+  message instead, read it: "Current password is wrong" means step 2's first field, and a
+  mismatch means the two new-password fields differ.</div></li>
+</ol>
+
+<div class="box note"><span class="bt">If you ever forget the password</span>
+It's stored in a plain text file called <code>.app_password</code> sitting next to
+<code>app.py</code> in the app folder (the file is created the first time you change the
+password, and it's excluded from git). Open that file to see the password, or write a new one
+into it and restart the app. If the file doesn't exist and you never changed the password,
+the password is still <code>changeme</code>.</div>
+
+<div class="box warn"><span class="bt">Common mistake</span>
+Don't skip the password change because "it's only local." Anyone who sits at your unlocked
+computer can open <code>127.0.0.1:5005</code>, and <code>changeme</code> is the first thing
+they'd try.</div>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section id="sample-data">
+<h2><span class="secno">4.</span>Try it with sample data</h2>
+
+<p>The app ships with three fully synthetic statements in the <code>sample_data/</code> folder —
+a checking CSV (with paychecks, rent, utilities, transfers), a credit-card CSV (groceries,
+dining, subscriptions, gas, and a refund), and a Venmo CSV. Every vendor, person, and amount is
+invented. Use them to drive the whole pipeline once before trusting it with your real data.</p>
+
+<h3>4.1 — Import the checking file</h3>
+<ol class="steps">
+<li>In the sidebar, click <span class="ui">Tools</span>, then <span class="ui">Import</span>.
+  You land on a page with two cards: <span class="ui">CSV Upload</span> and
+  <span class="ui">Manual Entry</span>. Click into <span class="ui">CSV Upload</span>.</li>
+<li>You're now on the <strong>Import CSV</strong> page. In the
+  <span class="ui">Account</span> dropdown — which deliberately starts on
+  <span class="ui">— Select account —</span> so you can't import against the wrong account by
+  accident — choose <span class="ui">My Checking (0001) — checking</span>.</li>
+<li>Under <span class="ui">CSV File</span>, click the file chooser and pick
+  <code>sample_data/sample_checking.csv</code> from the app folder — or just drag the CSV
+  from your file manager and drop it anywhere on the upload card (the card highlights while
+  you hover; the chosen filename appears under the file field either way).</li>
+<li>Click <span class="ui">Upload &amp; Import</span>.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  You are redirected to the <strong>Review Queue</strong> with a green banner reading
+  "Imported 26 new transaction(s). Review below." and the sidebar's Review Queue badge shows
+  a count. If you instead get a red banner starting "Parsed 0 importable rows — this doesn't
+  look like a checking export…", you picked the wrong account for the file (or the wrong
+  file) — that message is the app's wrong-file guard doing its job.</div></li>
+</ol>
+
+<h3>4.2 — Import the credit-card and Venmo files</h3>
+<ol class="steps">
+<li>Go back to the import page (Review Queue → <span class="ui">↥ Import</span> button at the
+  top right, or Tools → Import → CSV Upload).</li>
+<li>Import <code>sample_data/sample_creditcard.csv</code> against
+  <span class="ui">My Credit Card (0002) — credit card</span>.</li>
+<li>Import <code>sample_data/sample_venmo.csv</code> against
+  <span class="ui">Venmo (venmo) — wallet</span>.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  The credit-card import reports 40 new transactions, but only 39 land in the pending
+  queue — the 40th row, the card's "AUTOMATIC PAYMENT - THANK YOU" line, is auto-skipped
+  into its own strip so it can't double-count against the checking-side payment. The Venmo
+  import reports 10.</div></li>
+</ol>
+
+<h3>4.3 — Work the Review Queue</h3>
+<p>Click <span class="ui">Review Queue</span> in the sidebar. Every imported row is here,
+waiting for your sign-off. Things to notice while you look around:</p>
+<ul>
+  <li>Most rows arrived with a suggested vendor (cleaned up from the raw bank text — e.g.
+    <code>TST* HARBORLIGHT BISTRO</code> became "Harborlight Bistro") and many with a
+    suggested category.</li>
+  <li>Some rows carry a small pill explaining a flag: <span class="ui">Internal transfer</span>
+    on the savings transfers and the Venmo cash-out, <span class="ui">CC payment</span> on the
+    checking-side autopay rows (kept as transfers so the Reconcile Card tool can use them).</li>
+  <li>Click any field (vendor, category, amount, date) to edit it in place; a small popup with
+    <span class="ui">Save</span> / <span class="ui">Cancel</span> appears for the bigger edits.</li>
+</ul>
+<ol class="steps">
+<li>Approve a few rows one at a time with the green <span class="ui">✓</span> button at the
+  right of each row (hover text: "Approve — move to transactions"). Discard is the
+  <span class="ui">✕</span> next to it — discarded rows are kept in a separate "discarded"
+  view, not destroyed.</li>
+<li>Approve the rest. (Keyboard: with a row focused, <kbd>Cmd</kbd>+<kbd>Enter</kbd> approves.)
+  <div class="box check"><span class="bt">Checkpoint</span>
+  The queue empties and the sidebar badge disappears. Approved rows are now real ledger
+  transactions.</div></li>
+</ol>
+
+<h3>4.4 — Look at what you built</h3>
+<ol class="steps">
+<li><span class="ui">Dashboard</span> — year-to-date cards and recent activity now have
+  numbers.</li>
+<li><span class="ui">Expenses → Overview</span> — a category-by-month pivot. Click any L1 row
+  (e.g. Food &amp; Dining) to expand its L2 breakdown.</li>
+<li><span class="ui">Income → Overview</span> — the paychecks and Zelle income.</li>
+<li><span class="ui">Expenses → By Vendor</span> — notice the fake subscriptions
+  (Streamflix, Tunebird) lining up month after month; this is the subscription-creep view.</li>
+</ol>
+
+<h3>4.5 — Clean up when you're done</h3>
+<ol class="steps">
+<li>Go to Tools → Import → CSV Upload. The <strong>Recent Imports</strong> table on the right
+  lists your three batches.</li>
+<li>Click <span class="ui">Undo</span> on each sample batch and confirm. This permanently
+  removes the batch's staged rows <em>and</em> any transactions approved from them, and frees
+  the duplicate-detection keys — a complete rollback to the empty state.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  The Dashboard is empty again. You're ready for real data.</div></li>
+</ol>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section id="core-loop">
+<h2><span class="secno">5.</span>The core loop — your monthly routine</h2>
+
+<p>Everything else in the app is optional. This loop is the product: about 20–30 minutes,
+once a month, when your statements close.</p>
+
+<h3>Step 1 — Download CSVs from your bank</h3>
+<ol class="steps">
+<li>Log in to your bank's website (yourself, in your own browser — the app never does this).</li>
+<li>Find the transaction/statement download and choose <strong>CSV</strong> format
+  (sometimes labeled "spreadsheet"). For Chase: open the account, find the download icon above
+  the activity list, pick a date range and CSV. For Venmo: Statements → Download CSV.</li>
+<li>Pick a range that overlaps your last download rather than trying to butt ranges perfectly —
+  overlap is <em>safe</em> because duplicate detection flags anything already imported.</li>
+</ol>
+<div class="box warn"><span class="bt">Common mistake</span>
+Downloading PDF statements. The importer reads CSVs only. If your bank offers "PDF" and
+"CSV/Excel", you want CSV. (Excel <code>.xlsx</code> also won't import — if that's all you
+have, open it and save as CSV, keeping plain numbers in the amount column.)</div>
+
+<h3>Step 2 — Import each file</h3>
+<ol class="steps">
+<li>Tools → Import → CSV Upload.</li>
+<li>Select the matching account in the <span class="ui">Account</span> dropdown — checking file
+  to a checking account, card file to that card, Venmo export to the Venmo account. The
+  dropdown never pre-selects an account, precisely so you look at this every time.</li>
+<li>Choose the file — click to browse, or drag the CSV onto the upload card (dropping only
+  fills the file field; nothing imports until you click the button) — then click
+  <span class="ui">Upload &amp; Import</span>.</li>
+</ol>
+<div class="box check"><span class="bt">Checkpoint</span>
+A green banner: "Imported N new transaction(s)" — possibly with "· X duplicate(s) flagged for
+review" if your ranges overlapped (expected and fine). A red "Parsed 0 importable rows…"
+banner names the exact problem: the header-sniff message ("this doesn't look like a checking
+export (missing the "Posting Date" column)") means file/account mismatch; an "unparseable
+Amount" count with an example like <code>"$1,063.03"</code> means the file was hand-edited
+into currency formatting.</div>
+<p>Two side effects worth knowing: the raw CSV is archived automatically into
+<code>imports/checking/</code>, <code>imports/creditcards/</code>, or
+<code>imports/other/</code> with a timestamp prefix (permanent import history), and every
+batch gets an <span class="ui">Undo</span> button in Recent Imports.</p>
+
+<h3>Step 3 — Work the Review Queue</h3>
+<p>Approve (<span class="ui">✓</span>), edit-then-approve, or discard (<span class="ui">✕</span>)
+each row. The queue is where data quality happens:</p>
+<ul>
+  <li><strong>Fix vendors and categories here</strong>, not in the ledger later. If you notice
+    yourself fixing the same vendor every month, teach the auto-categorizer instead
+    (<a href="#categories">section 6</a>).</li>
+  <li><strong>Flagged rows are segregated, not hidden.</strong> Duplicates and auto-skipped
+    rows (card-side "Payment Thank You" lines, Venmo rows that would double-count) sit in their
+    own strips with explanatory pills. Note the asymmetry: the CHECKING-side payment row is
+    NOT skipped — it imports as a pending "CC Payment" transfer, because the Reconcile Card
+    tool needs it to tie statements. Confirm the flags are right; restore anything wrongly
+    flagged.</li>
+  <li><strong>Signs are handled for you.</strong> The queue shows amounts with the bank's raw
+    sign; on approve, the app converts to its own convention (for expense rows: positive =
+    money out, negative = a refund/credit). A cash-in over $500 on checking or Venmo defaults
+    to income; under $500 it defaults to a contra-expense (a refund) — re-type it in the queue
+    if the guess is wrong.</li>
+</ul>
+
+<h3>Step 4 — Sweep receipts, then reconcile</h3>
+<ol class="steps">
+<li>Drop the month's receipts into the receipts inbox and run a scan
+  (<a href="#receipts">section 7</a>).</li>
+<li>If you use the Payroll tool, reconcile the month's paychecks
+  (<a href="#payroll">section 9</a>).</li>
+<li>After the card autopay has imported and been approved, run Reconcile Card
+  (<a href="#reconcile-card">section 11</a>).</li>
+<li>Once a quarter: skim Tools → Data Cleanup (<a href="#cleanup-trash">section 15</a>) and
+  glance at Actuals-vs-Budget (<a href="#budgets">section 8</a>).</li>
+</ol>
+</section>
+
+<!-- ══════════════════════════ 5a ══════════════════════════ -->
+<section id="venmo-p2p">
+<h2><span class="secno">5a.</span>Venmo &amp; P2P payments — why they get their own importer</h2>
+
+<h3>Why your bank statement isn't the full story</h3>
+<p>Your bank only ever sees Venmo as <strong>lump transfers</strong>: a "VENMO CASHOUT"
+deposit when you move money out of Venmo, or a "VENMO PAYMENT" pull when Venmo tops up from
+your bank. That is not the story of what happened. One cashout can bundle ten individual
+payments — the rent split, the concert tickets, someone paying you back for dinner — and
+payments funded by your <em>Venmo balance</em> never touch the bank at all, so the bank
+statement doesn't even hint they exist.</p>
+<p>That's why PFT imports the <strong>Venmo statement itself</strong>: every individual
+payment and charge comes in as its own row, with the counterparty as the vendor (the person's
+name, not "VENMO") and the payment note carried along — so your books say "paid Riley $71.30,
+utilities my half," not "moved a lump to Venmo." Getting the file: log in at
+<code>venmo.com</code> and download the CSV for a date range — the export lives under
+<strong>Statements</strong> (the site moves things around, but it's the statement/CSV
+download you want). Import it against the <span class="ui">Venmo</span> account
+(<a href="#core-loop">section 5</a>, same flow as any other CSV).</p>
+
+<h3>The double-counting rule</h3>
+<div class="box warn"><span class="bt">Warning — the one rule that keeps P2P books honest</span>
+If you import both your bank statement AND your Venmo statement, the same dollars appear in
+two places. The <strong>bank-side "VENMO" rows</strong> (cashouts and top-ups) are transfers
+between your own accounts — they must be treated as transfers or discarded in review,
+<em>never</em> categorized as income or expense. The <strong>individual Venmo rows</strong>
+carry the real income/expense categorization. Break this rule and every Venmo dollar counts
+twice.</div>
+
+<p>Here's exactly what that looks like in the review queue, and what to click:</p>
+<ol class="steps">
+<li>Import your checking CSV. Any row whose description contains "VENMO" is automatically
+  segregated out of the pending queue into the <strong>skipped</strong> strip, wearing a
+  <span class="ui">Venmo</span> pill — the importer knows these are lump transfers and never
+  auto-imports them.</li>
+<li>Leave them there (they'll never enter your ledger), or discard them with the
+  <span class="ui">✕</span> button to tidy the strip. If one of them genuinely isn't a
+  transfer, restore it with <span class="ui">✓</span> and re-type it before approving.</li>
+<li>Import the Venmo CSV. Individual payments arrive as pending expense/income rows named
+  after the counterparty; the Venmo-to-bank <strong>cashouts</strong> (Standard/Instant
+  Transfer, Deposit rows) arrive typed as transfers with an
+  <span class="ui">Internal transfer</span> pill — approve those as-is, they're neutral on
+  your income and spending. Rows that weren't complete at export time (Pending, Issued,
+  Failed) are auto-segregated with a <span class="ui">Venmo status: …</span> pill; don't
+  approve those — re-import a later statement once they complete.</li>
+</ol>
+<div class="box check"><span class="bt">Checkpoint</span>
+After both imports, search your Expenses and Income transactions for "Venmo": you should see
+<em>people's names</em> (the individual payments), and no lump "VENMO CASHOUT"-style rows as
+income or expense. The only bank-side Venmo traces in your ledger should be transfers — or
+nothing at all. If a lump Venmo row shows up as income or expense, delete it (it goes to
+Trash) — the individual rows already tell that story.</div>
+
+<p><strong>The same pattern applies to any P2P or wallet app.</strong> Cash App and PayPal
+work like Venmo: a balance that settles to your bank in lumps, so the app's own statement
+holds the real transactions and the bank-side rows are transfers (PayPal rows are
+deliberately <em>not</em> auto-skipped by the checking importer, since PayPal often rides
+along on real merchant purchases — review those by hand). Zelle is the exception worth
+knowing: it's bank-to-bank with no balance and no separate statement, so the Zelle row on
+your bank statement usually <em>is</em> the real transaction — the importer keeps it and even
+pulls the counterparty's name out of the description for you.</p>
+</section>
+
+<!-- ══════════════════════════ 5b ══════════════════════════ -->
+<section id="accounts">
+<h2><span class="secno">5b.</span>Adding accounts</h2>
+
+<p>A fresh install ships with three placeholder accounts (My Checking, My Credit Card,
+Venmo). Real life has more — a second card, a joint checking account, a cash envelope. You
+add and manage all of them inside the app; no code editing involved.</p>
+
+<h3>Adding an account, click by click</h3>
+<ol class="steps">
+<li>In the left sidebar, click <span class="ui">Docs &amp; Settings</span> to expand the
+  group, then click <span class="ui">Accounts</span>.</li>
+<li>In the <span class="ui">Add an Account</span> card, type a <span class="ui">Name</span>
+  you'll recognize in dropdowns — e.g. <code>My Sapphire Card</code>.</li>
+<li>Pick a <span class="ui">Type</span>. This decides how transactions get in:
+  <ul>
+    <li><strong>Checking</strong> — CSV imports in the Chase checking format.</li>
+    <li><strong>Credit card</strong> — CSV imports in the Chase credit-card format.</li>
+    <li><strong>Digital wallet</strong> — CSV imports in the Venmo statement format.</li>
+    <li><strong>Other</strong> — no importer; transactions are entered by hand via
+      Tools → Import → Manual Entry. Use it for cash, HSA cards, anything without a
+      usable CSV.</li>
+  </ul>
+  If your bank's CSV isn't one of those formats, still pick the right type here, then have
+  an AI assistant build the importer — <a href="#your-bank">section 14</a>.</li>
+<li>Optionally type the card/account's <span class="ui">last 4</span> in the number field.
+  It's display-only — it appears next to the name in dropdowns so two similar accounts are
+  easy to tell apart.</li>
+<li><strong>Credit cards only:</strong> two extra fields appear.
+  <ul>
+    <li><strong>Statement close day (required)</strong> — the day of month your statement
+      cycle closes, same day every month (it's printed on every statement, e.g. "Statement
+      closing date: 06/25" → enter <code>25</code>). This drives statement-date assignment
+      on CSV import and powers the Reconcile Card wizard. For days 29–31, months without
+      that day close on the month's last day.</li>
+    <li><strong>Payment due day (optional)</strong> — the day of month the payment is due,
+      used to estimate payment dates on imported charges.</li>
+  </ul>
+  Existing credit-card accounts can add or correct these any time: edit the two
+  <span class="ui">Billing days</span> boxes in the account's table row and click
+  <span class="ui">Save</span>.</li>
+<li>Click <span class="ui">Add Account</span>.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  A green banner confirms the add, the account appears in the <span class="ui">Your
+  Accounts</span> table, and (for the three importable types) it's now in the Account
+  dropdown on the Import CSV page.</div></li>
+</ol>
+
+<h3>Rename, deactivate — but never delete</h3>
+<ul>
+<li><strong>Rename</strong> — edit the name right in the table row and click
+  <span class="ui">Rename</span>. History follows automatically (transactions point at the
+  account, not its name). Duplicate names are rejected, capitalization included.</li>
+<li><strong>Deactivate</strong> — hides the account from the import dropdown and every
+  new-transaction picker. Everything it already holds keeps rendering on every page. Closed
+  a card? Deactivate it — its years of history stay intact. <span class="ui">Reactivate</span>
+  brings it back any time.</li>
+<li><strong>There is no Delete, on purpose.</strong> Transactions reference their account
+  forever; deleting one would orphan its history. Deactivate is the answer.</li>
+</ul>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section id="categories">
+<h2><span class="secno">6.</span>Categories, auto-categorization &amp; vendor cleanup</h2>
+
+<p>Every transaction gets two category levels: <strong>L1</strong> (the broad group, like
+"Food &amp; Dining") and <strong>L2</strong> (the specific bucket, like "Groceries"). The app
+ships with a sensible starter tree for expenses, income, and transfers.</p>
+
+<h3>Viewing and adding categories in the app</h3>
+<ol class="steps">
+<li>Sidebar → <span class="ui">Docs &amp; Settings</span> → <span class="ui">Categorization</span>.
+  The full L1/L2 trees are listed by type (expense / income / transfer).</li>
+<li>To add: use the <strong>Add categories</strong> card at the top. Either create a brand-new
+  L1 with its first L2s (<span class="ui">Add L1 + L2s</span> — a new L1 requires at least one
+  L2), or add L2s under an existing L1 (<span class="ui">Add L2s</span>).
+  <div class="box check"><span class="bt">Checkpoint</span>
+  A green confirmation ("Added to existing L1 — 2 L2(s) added — reloading…") and the tree
+  refreshes. Additions are usable immediately in every dropdown and survive restarts.</div></li>
+</ol>
+<div class="box warn"><span class="bt">Renames and removals are different</span>
+The in-app page only <em>adds</em>. Renaming or removing categories is a two-part surgery,
+because transactions store category names as plain text — renaming the tree without updating
+existing rows orphans their history. Use the ready-made AI prompt ("Recipe 2") in
+<code>docs/customize_with_ai.md</code>, which edits the starter tree in
+<code>categories.py</code> <em>and</em> cascades the rename across existing transactions.
+Back up first.</div>
+
+<h3>How a row gets its suggested vendor and category</h3>
+<p>Understanding the pipeline makes it obvious what to change when a suggestion is wrong.
+At import, each row passes through, in order:</p>
+<ol>
+  <li><strong>Vendor cleanup</strong> (<code>vendor_rules.py</code> plus a per-importer vendor
+    map): shared rules strip processor prefixes (<code>SQ *</code>, <code>TST*</code>), store
+    numbers, and reference-number noise; known fragments map to canonical names; Zelle rows
+    get the counterparty's name pulled out of the description. Matching is word-boundary
+    aware, so "APPLE" can't hijack "APPLEBEES".</li>
+  <li><strong>Type classification</strong> (per importer): expense / income / transfer, using
+    the bank's own type column, transfer patterns, and the $500 cash-in threshold.</li>
+  <li><strong>Skip flags</strong>: card-side bill-payment rows ("AUTOMATIC PAYMENT", "PAYMENT
+    THANK YOU", autopay variants) and Venmo rows on the checking side are auto-segregated so
+    nothing double-counts. The checking-side card payment itself is <em>not</em> skipped — it
+    imports as a pending "CC Payment" transfer (see <a href="#core-loop">section 5</a>).</li>
+  <li><strong>Bank category hints</strong> (credit card only): Chase's own category column maps
+    to a starter L1/L2 pair.</li>
+  <li><strong>Review rules</strong> (the ladder in <code>routes_review.py</code>,
+    <code>_apply_review_rules</code>): first-match-wins vendor/description patterns that set
+    L1/L2 — e.g. airlines to Travel/Airfare, "Costco but not Costco Gas" to Groceries. This is
+    the layer you'll extend most.</li>
+</ol>
+
+<h3>Teaching it your own vendors — the AI recipe</h3>
+<p>Collect the fixes you keep making by hand, then paste this into an AI assistant along with
+the files it names (this is Recipe 3 from <code>docs/customize_with_ai.md</code>):</p>
+<div class="copywrap"><pre><code>I'm using Personal Financial Tracker, a local Flask + SQLite personal
+finance app. I want to add auto-categorization rules so imports come in
+pre-categorized. Two files are involved:
+- vendor_rules.py — cleans raw bank descriptions into canonical vendor
+  names (ordered substring/fragment matching).
+- The auto-categorization rules applied at import time — an ordered,
+  first-match-wins ladder that maps vendor/description (and sometimes
+  amount) to (trx_type, l1_category, l2_category). Find where the
+  existing rules live (the import pipeline applies them right after
+  parsing) and follow their exact style.
+
+Here are my rules, written as "raw description or vendor → what I want":
+&lt;EXAMPLES, e.g.:
+- Every "FOO LLC" charge → Food &amp; Dining / Takeout
+- Anything containing "SQ *BLUE BOTTLE" → vendor "Blue Bottle Coffee",
+  category Food &amp; Dining / Coffee Shops
+- "CITY OF SPRINGFIELD UTIL" → Housing / Utilities&gt;
+
+How to do it:
+1. Where a raw description needs a nicer vendor name, add a cleanup rule
+   in vendor_rules.py. Use word-boundary fragment matching the way the
+   existing rules do, so short fragments don't accidentally match inside
+   longer words.
+2. Add category rules to the import-time rules ladder, placed so
+   more-specific rules come before general ones (first match wins).
+3. My category names must EXACTLY match names in my category tree
+   (categories.py / the categories table) — verify each one and tell me
+   if any of my requested categories don't exist.
+
+These rules apply to FUTURE imports only, which is fine. I have backed up
+the app folder first. Only edit the rules — don't touch the database or
+the importers. When done, tell me how to test.</code></pre></div>
+<p>Do this once a quarter and the review queue gets progressively boring — which is the goal.
+For one-off vendor messes already in your ledger, use Data Cleanup's global vendor rename
+instead (<a href="#cleanup-trash">section 15</a>).</p>
+</section>
+
+<!-- ══════════════════════════ 7 ══════════════════════════ -->
+<section id="receipts">
+<h2><span class="secno">7.</span>Receipts, end to end</h2>
+
+<p>The receipts pipeline turns a shoebox of PDFs and phone photos into receipts that are
+matched to transactions and filed in an organized folder tree. The payoff: any transaction can
+show its receipt in one click, forever — warranty claims, tax questions, HSA reimbursements
+years later.</p>
+
+<h3>One-time setup check</h3>
+<p>OCR and PDF handling use external tools on some systems. If the scan step later reports
+extraction failures: on macOS, install <code>brew install poppler tesseract</code>
+(poppler reads PDFs; tesseract is the OCR fallback — macOS also has a built-in OCR path that
+usually works out of the box). On Windows/Linux, install your platform's
+<code>poppler-utils</code> and <code>tesseract</code> packages. iPhone HEIC photos are
+converted automatically.</p>
+
+<h3>The flow</h3>
+<ol class="steps">
+<li><strong>Drop files in the inbox.</strong> The inbox is an ordinary folder:
+  <code>receipts/inbox/</code> inside the app folder. PDFs, JPG/PNG/HEIC photos — don't bother
+  renaming anything. Emailed receipts: print-to-PDF or download the attachment. Paper: photograph
+  flat, decent light, whole receipt in frame including the total.</li>
+<li><strong>Scan.</strong> Sidebar → <span class="ui">Tools</span> →
+  <span class="ui">Receipts</span>, then click <span class="ui">⟳ Scan inbox</span> at the top.
+  The app reads each file, extracts vendor / amount / date, and scores candidate transactions
+  from your ledger on those three signals.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  The status line under the button reports what the scan did, and the page's counters update:
+  high-confidence matches <em>file themselves</em>; medium-confidence ones land in the review
+  pile; no-match receipts become <strong>orphans</strong>.</div></li>
+<li><strong>Review the queue.</strong> Click <span class="ui">Start review →</span>. One
+  receipt at a time: the file preview on one side, the proposed transaction on the other.
+  Actions (all keyboard-driven; defaults shown, editable in Docs &amp; Settings →
+  Shortcuts): <span class="ui">Confirm &amp; file</span> (<kbd>Enter</kbd>), skip
+  (<kbd>s</kbd>), not-a-receipt (<kbd>n</kbd>), not-this-match/search (<kbd>r</kbd>), link to
+  another transaction (<kbd>l</kbd>), open split panel (<kbd>x</kbd>), discard duplicate
+  (<kbd>d</kbd>).</li>
+<li><strong>Place orphans when their transactions arrive.</strong> Orphans aren't stuck —
+  every scan re-checks them against the current ledger, so a receipt that arrived before its
+  bank transaction matches up on a later scan. You can also attach one manually from the
+  transaction's detail page.</li>
+</ol>
+
+<h3>Where files end up</h3>
+<pre><code>receipts/filed/&lt;year&gt;/&lt;L1 category&gt;/&lt;L2 category&gt;/&lt;month&gt;/"YYMMDD Vendor.pdf"</code></pre>
+<p>Year/month come from the <em>transaction's</em> date and the folders from its categories, so
+the filing mirrors your ledger. Collisions get a numeric suffix; nothing is ever overwritten,
+and nothing is ever hard-deleted by the app (rejected files go to a receipts trash view where
+you can restore or truly delete).</p>
+
+<div class="box warn"><span class="bt">Honest expectations</span>
+Receipts are this tool's <strong>weakest flow</strong> — OCR is genuinely hit-or-miss on photos.
+Expect orphans and the occasional bad match, especially when the matching transaction hasn't
+been imported yet. The review screen exists to catch exactly that; budget a little patience.</div>
+<div class="box warn"><span class="bt">Common mistakes</span>
+<strong>Scanning before importing.</strong> Matching runs against your ledger — import and
+approve the bank statement first, then scan receipts.
+<strong>Bad photos.</strong> Glare, crumpled paper, or a cropped-off total are the main causes
+of wrong amounts and orphans; the confidence tiers usually catch it, but better photos mean
+less review.
+<strong>Foreign-currency receipts</strong> can't be tied to the USD charge automatically —
+expect to place travel receipts by hand.</div>
+
+<p>Mark receipt-less-by-nature transactions (bank fees, the $4 coffee) with the
+<strong>no-receipt-needed</strong> flag — from the transaction detail page or in bulk from
+Data Cleanup — so the "missing receipts" list stays an honest to-do list. Deeper detail on
+extraction and matching internals: <code>docs/receipts_guide.md</code>.</p>
+</section>
+
+<!-- ══════════════════════════ 8 ══════════════════════════ -->
+<section id="budgets">
+<h2><span class="secno">8.</span>Budgets &amp; the Actuals-vs-Budget report</h2>
+
+<h3>Setting budget values</h3>
+<ol class="steps">
+<li>Sidebar → <span class="ui">Docs &amp; Settings</span> → <span class="ui">Assumptions</span>
+  → <span class="ui">Budget Values</span>.</li>
+<li>Pick the year at the top.</li>
+<li>For each category you actually want to control, enter an <strong>annual</strong> amount —
+  either one flat number on the L1 row, or expand an L1 and budget its L2s individually.
+  <div class="box note"><span class="bt">The rollup rule</span>
+  As soon as <em>any</em> L2 under an L1 has a non-zero budget, that L1's effective budget
+  becomes the <strong>sum of its L2 rows</strong> — the flat L1 input locks and shows the
+  rolled-up total. So budget an L1 flat, or by its L2s, but they don't add together.</div></li>
+</ol>
+<p>Income categories can be budgeted on the same page — they get their own section in the
+report, with the goodness inverted (ahead of pace = green). Advice on <em>what</em> to budget
+(few lines, only where behavior moves the number) is in <code>docs/finance_tips.md</code>.</p>
+
+<h3>Reading the report</h3>
+<ol class="steps">
+<li>Sidebar → <span class="ui">Tools</span> → <span class="ui">All Tools</span> →
+  <span class="ui">Actuals vs. Budget</span> (URL: <code>/tools/actuals-vs-budget</code>).</li>
+<li>Choose your view:
+  <ul>
+    <li><span class="ui">Pace</span> (default) — year-to-date actuals vs a <em>prorated</em>
+      budget (annual ÷ 12 × complete months). Answers "am I on pace?" Rows sort worst-first.</li>
+    <li><span class="ui">Annual</span> — YTD actuals vs the <em>full</em> annual budget, with
+      the year-elapsed percentage as a reference marker. Answers "how much room is left?"</li>
+  </ul></li>
+<li>Read the colors: green = at/under pace, yellow = up to 25% over pace, red = more than 25%
+  over. L1 rows with L2-level budgets expand to show the L2 detail. Actuals are pinned to
+  whole-month boundaries so the proration is a fair comparison.</li>
+</ol>
+</section>
+
+<!-- ══════════════════════════ 9 ══════════════════════════ -->
+<section id="payroll">
+<h2><span class="secno">9.</span>Payroll reconciliation — booking your paychecks at gross</h2>
+
+<h3>Why this exists (the gross-vs-net problem, for non-accountants)</h3>
+<p>Say you earn $4,000 in a pay period. Your employer withholds, for example, $600 federal tax,
+$180 state tax, $306 Social Security + Medicare, and puts $400 into your 401(k) — and deposits
+the remaining <strong>$2,514</strong> in your bank. Your bank statement — and therefore your
+import — only ever sees the $2,514. Left alone, your books would say you earned $2,514, your
+income would look ~37% smaller than it is, and your single biggest expense category (taxes)
+would be completely invisible.</p>
+<p>The Payroll tool fixes that by splitting each imported deposit into its true parts:
+<em>+$4,000 gross wages, −$600 federal tax, −$180 state tax, −$306 FICA, −$400 pre-tax
+retirement</em>. Those five lines still sum to $2,514 — your cash totals don't change by a
+cent — but the Income pages now show real earnings and real taxes paid. Gross books under
+Salary &amp; Wages; taxes and pre-tax health book as negative "contra-income" lines under
+Taxes and Pre-Tax Deductions. The <strong>retirement</strong> amount is different: it's your
+own money moving into your own retirement account — savings, not income lost — so it books
+as a <strong>transfer</strong> (and can flow straight into the Investments module, below).
+It's employee-side only — no employer-cost bookkeeping.</p>
+
+<h3>Post-tax lines — Roth and garnishments</h3>
+<p>Paychecks can also carry deductions taken <em>after</em> tax, and the tool books each by
+what it really is:</p>
+<ul>
+<li><strong>Roth / post-tax retirement</strong> — a <strong>savings transfer</strong>, exactly
+like pre-tax retirement: your own (already-taxed) money moving into your own retirement
+account. It books as a transfer sharing the same <span class="ui">Retirement account
+(Investments)</span> target as the pre-tax amount — if a paycheck has both, you get two
+transfer rows into the same account, and each can sync into Investments as its own
+contribution.</li>
+<li><strong>Garnishment / other post-tax deduction</strong> — money you <em>earned and then
+had taken</em> (wage garnishment, union dues, and the like). It books as
+<strong>contra-income</strong> (a negative income row) under its own category,
+<em>Post-Tax Deductions / Garnishments &amp; Other</em> — not under Taxes, and not hidden in
+the generic plug — so your gross earnings stay truthful and the deduction is visible by
+name.</li>
+</ul>
+<p>The tie check everywhere is now <strong>gross − taxes − pre-tax − post-tax − other =
+net</strong>. The Gusto CSV parser also recognizes Roth and garnishment columns (e.g.
+"Roth 401(k) (Employee Deduction)", "Garnishment (Employee Deduction)") and buckets them
+automatically. Undo reverses post-tax rows the same as everything else, including any Roth
+contribution synced into Investments (same still-untouched rule as pre-tax).</p>
+
+<div class="box note"><span class="bt">Tracking your 401(k) in Investments — set the account
+up FIRST</span>
+If you contribute to a 401(k)/retirement plan and want it tracked in Investments, create the
+investment account <em>before</em> reconciling: <span class="ui">Investments</span> →
+<span class="ui">Overview</span> → add an account (name it, group
+<strong>Retirement</strong> — see the Investments section for the full setup steps). Then run
+payroll reconciliation and, on the reconciliation page, check the <span class="ui">Retirement
+account (Investments)</span> dropdown — with a single Retirement-group account, "auto" picks
+it for you. On execute you get, for a $400 contribution: a <strong>$400 transfer</strong>
+transaction (category <em>Retirement / your-account-name</em>, dated the pay date) in your
+transactions, and a <strong>$400 contribution</strong> event in that Investments account on
+the same date — created by the same Sync engine every investment transfer uses, so it can
+never double-book.
+<br><br>
+<strong>Reconciled before creating the account?</strong> Nothing is lost: the transfer row
+still books, under the generic <em>Retirement / Retirement Plan</em> category, and nothing
+lands in Investments. To fix it afterwards, create the investment account, then either
+(a) undo the reconciliation, pick the account in the dropdown, and re-execute, or (b) open
+the transfer transaction, change its L2 category to the account's exact name, and press
+<span class="ui">Sync</span> on <span class="ui">Investments → Transactions</span> — the
+sync pulls any qualifying transfer it hasn't seen yet.</div>
+
+<h3>Path 1 — Gusto CSV upload</h3>
+<ol class="steps">
+<li>In Gusto: <strong>Reports → Payroll Journal Report → CSV</strong>; download it.</li>
+<li>In the app: sidebar → <span class="ui">Tools</span> → <span class="ui">Payroll</span>. On
+  the <strong>Import a Gusto CSV</strong> card, choose the file and click
+  <span class="ui">Parse + review</span>. (The file auto-saves to <code>imports/payroll/</code>
+  for permanent history — safe to delete your download afterwards.)</li>
+<li>Each pay period in the file becomes a <strong>draft</strong> reconciliation. Open one:
+  you see the parsed employee-side numbers (gross, each tax, pre-tax deductions, net), the
+  matched bank deposit if one is already imported, and the exact rows that will be booked.</li>
+<li>Check the tie line — the planned rows must sum to net pay ("✓ ties"). Then click
+  <span class="ui">Confirm + book gross-up rows</span>.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  The status pill flips to "✓ Reconciled." If a matching net deposit existed, it's now a
+  split parent whose children are the gross/tax/deduction lines; check Income → Transactions
+  and you'll see gross wages and negative tax lines for that pay date. If the button is
+  disabled with "The math must tie before executing", a number is off — fix it or use the
+  plug field.</div></li>
+</ol>
+
+<h3>Path 2 — Manual paystub true-up (any employer)</h3>
+<ol class="steps">
+<li>Tools → Payroll → <span class="ui">Open true-up form →</span> (the "Enter a paystub
+  manually" card). You're on the <strong>Paystub true-up</strong> page.</li>
+<li>Pick the <span class="ui">Entry basis</span>:
+  <span class="ui">One paycheck</span> (if the matching net deposit is already imported, the
+  tool splits it in place) or <span class="ui">Year-to-date totals (annual true-up)</span>
+  (one entry books the whole year's gross-up as standalone rows — handy if you'd rather do
+  this once a year from your final paystub or W-2).</li>
+<li>Type the numbers straight off the stub: gross pay, federal / state withholding, FICA (one
+  combined line — if your stub splits Social Security and Medicare, add them), other payroll
+  taxes (PFML / SDI / local), pre-tax retirement, health/other pre-tax, Roth / post-tax
+  retirement, garnishment / other post-tax, and net pay.</li>
+<li>Watch the live tie check next to Net pay: it continuously verifies
+  <strong>gross − taxes − pre-tax − post-tax − other = net</strong>. If your stub has some
+  line the form doesn't (rounding, a one-off), put it in
+  <span class="ui">Other adjustment (plug)</span> so the math ties.</li>
+<li>Click <span class="ui">Save draft →</span>, review the plan on the next page exactly as in
+  Path 1, and <span class="ui">Confirm + book gross-up rows</span>.</li>
+</ol>
+
+<div class="box note"><span class="bt">Undo is always available</span>
+Open any reconciled entry and click <span class="ui">Undo reconciliation</span>: every booked
+row is deleted and, if a deposit was split, it's restored to its original single-row state.
+A contribution the reconciliation synced into Investments is removed too, as long as it's
+still untouched there (if you've since moved or revalued that money, the event stays and
+you manage it from the Investments ledger). The tool records exactly what it created, so
+undo is complete.</div>
+<div class="box warn"><span class="bt">Common mistakes</span>
+<strong>Reconciling before importing the bank statement</strong> — then there's no deposit to
+split, and the rows book standalone; if the deposit imports later you'll have both. Import
+and approve the deposit first. <strong>Entering employer-side numbers</strong> (employer 401k
+match, employer taxes) — this tool is employee-side only; employer costs aren't your income
+or your expense.</div>
+</section>
+
+<!-- ══════════════════════════ 10 ══════════════════════════ -->
+<section id="tax-estimator">
+<h2><span class="secno">10.</span>Tax Estimator</h2>
+
+<p>Sidebar → <span class="ui">Tools</span> → <span class="ui">Tax Estimator</span>. A six-step
+walkthrough that turns a handful of numbers into an estimate of your <strong>2026</strong>
+federal and state income tax — and, once you enter what you've already paid, into "what you
+still owe (or your refund)" with a simple quarterly split. It is completely
+<strong>stateless</strong>: nothing you type is saved, sent, or written to the database;
+close the tab and it's gone.</p>
+
+<h3>The walkthrough</h3>
+<ol class="steps">
+<li><strong>Read me first.</strong> The caveats card (worth actually reading — the full list is
+  below). Click <span class="ui">I understand — start</span>.</li>
+<li><strong>About you.</strong> Pick a filing status (Single / Married filing jointly /
+  Married filing separately / Head of household) and your state. The state dropdown is grouped:
+  <em>No income tax</em>, <em>Flat rate — supported</em>, and <em>Not yet supported (federal
+  only)</em> — picking an unsupported state is fine (each carries a "⚠ federal only" marker
+  and an inline note appears the moment you pick one), you still get the full federal
+  estimate.</li>
+<li><strong>Your income types.</strong> Toggle what applies — W-2 job, self-employment/1099,
+  interest &amp; dividends, capital gains, other. You'll only be asked for numbers on what you
+  toggle. Toggling self-employment also asks <em>how it's structured</em>: sole proprietor /
+  single-member LLC (the default — SE tax applies to your Schedule&nbsp;C line&nbsp;31 net
+  profit, and the half-SE-tax deduction is taken automatically) or S-corp owner paying
+  yourself W-2 (salary goes in the W-2 fields; owner distributions get their own field and
+  are <em>not</em> subject to SE tax). The results notes state which treatment was
+  applied.</li>
+<li><strong>Your deductions.</strong> Standard deduction (the default; the card shows the 2026
+  amount for your filing status) or itemize (you'll enter one total). Also toggle traditional
+  IRA / HSA contributions <em>made outside payroll</em>.
+  <div class="box warn"><span class="bt">The double-count trap</span>
+  401(k) deferrals and payroll health premiums are usually <em>already excluded</em> from your
+  W-2 Box 1 wages — they appear in Box 12 (code D for 401(k)), not Box 1. Self-check on
+  last year's W-2: if Box 3 (Social Security wages) is bigger than Box 1, the difference is
+  your pre-tax deferrals, already excluded. Do not enter them again as deductions here — that double-counts. The
+  IRA/HSA fields are for contributions made outside payroll only. (The tool repeats this
+  warning in its results notes.)</div></li>
+<li><strong>Enter your numbers.</strong> Only the fields your toggles selected, each with a
+  hint of where it comes from (W-2 Box 1, 1099-DIV box 1a/1b, etc.). Click
+  <span class="ui">See my estimate →</span>.</li>
+<li><strong>Your estimate.</strong> You get: the full income-to-taxable walk (total income →
+  AGI → taxable), federal tax broken into ordinary tax, capital-gains tax by 0/15/20% band,
+  self-employment tax, additional Medicare, and NIIT, the state line, marginal and effective
+  rates, and a notes list of every approximation that applied to <em>your</em> inputs. In
+  <strong>Payments &amp; what's left</strong>, enter federal/state withholding (W-2 Boxes
+  2/17) and any estimated payments, click <span class="ui">Recalculate</span>, and read the
+  remaining-owed / refund line with the suggested quarterly split.</li>
+</ol>
+
+<h3>What the federal math includes</h3>
+<ul>
+  <li>2026 ordinary-income brackets for all four filing statuses, and the 2026 standard
+    deduction.</li>
+  <li>Long-term capital gains and qualified dividends taxed by the stacking method (they sit
+    on top of ordinary income and get 0/15/20% by where they land).</li>
+  <li>Self-employment tax (Schedule SE) with the wage-base interaction against your W-2 wages,
+    and the half-SE-tax deduction fed back into AGI.</li>
+  <li>Additional Medicare tax (0.9%) and a simplified NIIT (3.8%).</li>
+  <li>Credits subtracted dollar-for-dollar from federal income tax (you enter one total).</li>
+</ul>
+
+<h3>State support</h3>
+<ul>
+  <li><strong>No-income-tax states</strong> — AK, FL, NV, SD, TN, TX, WA, WY: state tax $0.
+    New Hampshire also shows $0 (its interest &amp; dividends tax was repealed).
+    Washington's excise tax on large capital gains is <em>not</em> modeled.</li>
+  <li><strong>Flat-tax states (approximated)</strong> — AZ, CO, GA, ID, IL, IN, KY, MI, MS,
+    NC, PA, UT: computed as the state's flat rate × a federal base (federal taxable income or
+    federal AGI, whichever is the closer proxy for that state). Each shows a specific
+    approximation note — several of these states have scheduled rate cuts, and state-specific
+    deductions/exemptions are not modeled, so some estimates overstate.</li>
+  <li><strong>Everything else (graduated brackets)</strong> — not yet supported; the federal
+    estimate still computes and the tool says so plainly. More states are coming.</li>
+</ul>
+
+<h3>The complete honest caveats list</h3>
+<div class="box danger"><span class="bt">Not tax advice — and these are the known simplifications</span>
+<ul style="margin:6px 0">
+  <li>This is an <strong>estimate, not tax advice</strong>; no CPA was involved. Verify
+    anything that matters with a professional or real tax software.</li>
+  <li>Rates are for tax year 2026 and should be <strong>verified before relying on
+    results</strong> — several state rates have scheduled changes.</li>
+  <li><strong>No AMT</strong> (alternative minimum tax).</li>
+  <li><strong>No QBI deduction</strong> (the 20% pass-through deduction for self-employment
+    income).</li>
+  <li><strong>No credit phase-outs</strong> — your credits total is subtracted
+    dollar-for-dollar, which overstates credits that phase out at your income.</li>
+  <li><strong>Capital losses are floored at $0</strong> — no loss netting and no $3,000
+    ordinary-income offset. If you have net losses, your real tax is lower than shown.</li>
+  <li><strong>Self-employment losses are excluded entirely</strong> — a negative SE amount
+    produces no SE tax and does <em>not</em> reduce your other income, so with a real SE loss
+    your actual tax is lower than shown. The results notes say so when this applies.</li>
+  <li><strong>State math is flat-rate × a federal base</strong> — no state-specific deductions,
+    exemptions, credits, or local/county/city taxes (which are material in e.g. Indiana
+    counties, Michigan cities, Pennsylvania localities).</li>
+  <li><strong>The quarterly split is simply remainder ÷ 4</strong> — it is not a safe-harbor
+    calculation and doesn't account for payments already being late in the year.</li>
+  <li>NIIT uses MAGI ≈ AGI and gross investment income (no investment expenses netted).</li>
+</ul></div>
+</section>
+
+<!-- ══════════════════════════ 11 ══════════════════════════ -->
+<section id="reconcile-card">
+<h2><span class="secno">11.</span>Reconcile Card — closing the credit-card cycle</h2>
+
+<p>Every month your checking account pays the card, and that payment settles a specific set of
+charges. Reconcile Card ties each payment to exactly the charges it settled, proves the math
+to the penny, and diagnoses anything in transit. Run it once a month, after the autopay has
+imported and been approved.</p>
+
+<h3>What it needs to work</h3>
+<p><strong>Setup prerequisite: set the card's statement close day.</strong> The wizard
+buckets charges into statement cycles using the close day stored on the credit-card
+account — go to Docs &amp; Settings → Accounts (<a href="#accounts">section 5b</a>) and
+fill in the <span class="ui">Billing days</span> for each card. Without it, the wizard
+falls back to post dates and can't derive statement cycles.</p>
+<p>A card payment, to this tool, is a <strong>transfer</strong> transaction with L1 category
+<span class="ui">Credit Card Payment</span> whose L2 names the card. The checking importer
+creates these automatically from autopay/payment rows (and defaults the L2 when you have
+exactly one credit-card account — otherwise you pick the card in the review queue). In
+every type dropdown these rows display as <span class="ui">CC Payment</span> — a display
+distinction over the same stored transfer type, so card payments never blur together with
+investment transfers. The card-side "PAYMENT THANK YOU" rows stay skipped so nothing
+double-counts.</p>
+
+<h3>The four dates on a transaction</h3>
+<p>Card transactions carry four dates, and each answers a different question:</p>
+<ul>
+<li><strong>Transaction date</strong> — when you swiped.</li>
+<li><strong>Post date</strong> — when the bank recorded it.</li>
+<li><strong>Statement date</strong> — the statement close the charge belongs to. The
+  importer assigns it from the account's close day (post-date basis); the wizard trues it
+  up on confirm for boundary charges that landed a cycle over. All four are editable on
+  the transaction detail page.</li>
+<li><strong>Payment date</strong> — when the cash actually left checking to settle the
+  charge. Set by the wizard on confirm; drives cash-basis month rollups.</li>
+</ul>
+<p>The wizard buckets by statement date when present, falling back to post date only for
+rows that don't have one.</p>
+
+<h3>The monthly ritual</h3>
+<ol class="steps">
+<li>Sidebar → <span class="ui">Tools</span> → <span class="ui">Reconcile Card</span>. The
+  <strong>Open payments — not yet reconciled</strong> table lists card payments awaiting
+  reconciliation; below it, <strong>Open charges</strong> shows what's accruing toward the
+  next payment. If a payment shows <span class="ui">Set card →</span> instead of a Preview
+  button, open it and set its L2 to the card's name first.</li>
+<li>Click <span class="ui">Preview →</span> on a payment. The detail page proposes the set of
+  charges (by statement cycle) that this payment settled, sums them, and shows the
+  <strong>residual</strong> — proposed charges vs the payment amount.</li>
+<li>If the residual is <strong>$0.00</strong> (green), click
+  <span class="ui">CONFIRM — settle N charges</span>.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  The charges lock as settled, and their payment and statement dates true-up to the actual
+  cycle. Nothing writes until a $0.00 residual is confirmed — the confirm button doesn't
+  exist otherwise.</div></li>
+<li>If the residual is <em>not</em> zero, read the diagnosis under it. The tool looks for the
+  usual suspects and offers one-click fixes: charges from the edge of the cycle that
+  belong in this settlement ("include them, then work the remainder"), a charge posted after
+  close (in transit), a still-unapproved row sitting in the review queue that matches the
+  residual, or a prior-cycle carry. Work the suggestions until the residual reads $0.00,
+  then confirm.</li>
+</ol>
+<p>Mistakes are cheap: <span class="ui">Unwind this settlement</span> on a reconciled payment
+reverts every charge to its prior payment/statement dates.</p>
+
+<h3>If you carry a balance</h3>
+<p>Nothing here assumes you pay in full. Interest is just another charge: it imports as a
+normal expense, lands on its statement by the close day, and the tie includes it like any
+other line. If a payment is <em>smaller</em> than the cycle's charges, the wizard shows the
+unpaid remainder as a <strong>carried balance</strong> — a diagnosis, not an error. To
+reconcile a partial payment, exclude the charges it didn't cover (they stay open for the
+next payment's preview) until the residual reads $0.00, then confirm.</p>
+<div class="box warn"><span class="bt">Common mistake</span>
+Running this before the month's card statement rows are imported <em>and approved</em>. The
+tool matches against your ledger — if the residual won't close, the missing charge is usually
+still in the review queue or in a statement you haven't imported yet.</div>
+</section>
+
+<!-- ══════════════════════════ 12 ══════════════════════════ -->
+<section id="investments">
+<h2><span class="secno">12.</span>Investments (experimental)</h2>
+
+<p>The sidebar's <span class="ui">Investments</span> group is an optional module that tracks
+investment accounts with a <strong>lot-based engine</strong>: every dollar of principal you
+deploy becomes a lot with an origin date; contributions, withdrawals, moves between accounts,
+and value snapshots are events on those lots; and from that history the app computes both
+<strong>XIRR</strong> (money-weighted return — your personal return including the timing of
+your contributions) and <strong>TWR</strong> (time-weighted return — comparable to a fund's
+published number).</p>
+
+<h3>Set expectations first</h3>
+<div class="box warn"><span class="bt">Experimental means experimental</span>
+This module works, but it's the newest and least battle-tested part of the app, and it
+operates <em>largely independently</em> of the rest: investment accounts and events live in
+their own tables, and the module doesn't reconcile itself against your bank imports beyond
+optional transfer syncing. Treat it as a bonus notebook for tracking your portfolio — not as
+the same class of machinery as the import/review ledger. Expect rough edges.</div>
+
+<h3>Getting started</h3>
+<ol class="steps">
+<li>Read the module's own guide first: <span class="ui">Investments</span> →
+  <span class="ui">How it works</span> in the sidebar — it explains lots, events, and the
+  return math in detail.</li>
+<li>Add your investment accounts from the Investments overview page.</li>
+<li>Record contributions/withdrawals/moves on the <span class="ui">Transfer</span> page (or
+  bulk-load history via <span class="ui">Investments → Import</span>, which provides a CSV
+  template).</li>
+<li>Enter a <strong>value snapshot</strong> per account whenever you have a statement —
+  quarterly is plenty. Snapshots are what turn cash-flow history into return numbers.</li>
+</ol>
+</section>
+
+<!-- ══════════════════════════ 13 ══════════════════════════ -->
+<section id="exports">
+<h2><span class="secno">13.</span>Excel exports</h2>
+
+<p>Every overview and transactions page (Expenses, Income, Investments) has an
+<span class="ui">Export</span> button in the top-right page header. Clicking it opens an
+options popup rather than dumping a file immediately:</p>
+<ol class="steps">
+<li>Click <span class="ui">Export</span> on the page you're looking at.</li>
+<li>In the popup, choose:
+  <ul>
+    <li><strong>Date range</strong> — from/to dates.</li>
+    <li><strong>Date basis</strong> (transaction pages) — Transaction date, Post date,
+      Statement date, or Payment date. Statement/payment basis is how you tie an export to a
+      card statement.</li>
+    <li><strong>Detail level</strong> (overview pages) — L1 (rolled up) or L1 + L2, and whether
+      to include $0 categories.</li>
+  </ul></li>
+<li>Confirm.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  Your browser downloads a formatted <code>.xlsx</code> workbook (from an
+  <code>/export/…​.xlsx</code> URL). Formatted means real headers, number formats, and totals —
+  something you can hand to a spreadsheet person, or to your accountant, as-is.</div></li>
+</ol>
+<p>Exports are read-only snapshots — nothing you do in Excel flows back into the app.</p>
+</section>
+
+<!-- ══════════════════════════ 14 ══════════════════════════ -->
+<section id="your-bank">
+<h2><span class="secno">14.</span>Adding YOUR bank — the AI importer recipe</h2>
+
+<p>PFT ships with three importers: Chase checking, Chase credit card, and Venmo. If you bank
+elsewhere, you have an AI assistant build an importer from a sample of your bank's CSV. This
+is the most common customization, it takes a few minutes, and it works remarkably well because
+bank CSVs are simple and the app's importer pattern is deliberately uniform (every importer is
+one file that parses a CSV into the same dict shape).</p>
+
+<h3>Step 1 — Sanitize a sample CSV (do not skip)</h3>
+<p>You're about to hand a chunk of a bank statement to an AI service, so strip anything
+identifying first:</p>
+<ol class="steps">
+<li>Download a CSV from your bank and open it in a spreadsheet or text editor.</li>
+<li>Keep the <strong>header row</strong> exactly as-is — the AI needs the real column names.</li>
+<li>Keep 10–20 real data rows so the AI sees genuine date formats, amount signs, and
+  description quirks.</li>
+<li>Replace anything identifying: account digits (<code>...1234</code> →
+  <code>...0000</code>), your name, other people's names in transfer descriptions, addresses.
+  Change the digits, keep the <em>format</em> identical (same length, same punctuation).</li>
+<li>Save as <code>sample_sanitized.csv</code>.</li>
+</ol>
+
+<h3>Step 2 — Know your network's quirks (tell the AI which apply)</h3>
+<p>The single most common importer bug is a flipped sign convention, and it varies by
+issuer — check your sample against this table and mention what you see in the prompt:</p>
+<table class="plain">
+<tr><th>Export type</th><th>What to expect</th></tr>
+<tr><td><strong>American Express</strong></td><td>Amounts are usually <em>positive for
+  charges</em> (the opposite of Chase); payments/credits negative. Often a single date column,
+  sometimes an extended details column with the merchant address glued on.</td></tr>
+<tr><td><strong>Mastercard / Visa issuers</strong> (Citi, Capital One, US Bank…)</td>
+  <td>Conventions vary <em>per issuer</em>, not per network. Some use one signed Amount
+  column (charges negative), others use separate <strong>Debit</strong> and
+  <strong>Credit</strong> columns that must be merged into one signed amount. Check which
+  yours is.</td></tr>
+<tr><td><strong>Checking / debit exports</strong></td><td>Usually one signed amount column
+  (deposits positive), often only a single date. Some banks add a running Balance column
+  (ignore it) or a type column worth mapping to expense/income/transfer. Watch for
+  transfer/autopay descriptions that should be auto-flagged so they don't double-count
+  against your card imports.</td></tr>
+<tr><td><strong>Hand-edited / Excel-exported files</strong></td><td>Currency-formatted
+  amounts like <code>$1,063.03</code> or <code>(45.00)</code> for negatives. The app's amount
+  parser tolerates most of this, but keep amounts as plain numbers where you can.</td></tr>
+</table>
+
+<h3>Step 3 — The prompt</h3>
+<p>Attach or paste three things into the AI conversation: your
+<code>sample_sanitized.csv</code>, the file <code>importers/chase_cc.py</code> from the app
+folder (the reference pattern), and this block:</p>
+<div class="copywrap"><pre><code>I'm using Personal Financial Tracker, a local Flask + SQLite personal
+finance app. I want to add an importer for a new bank: &lt;BANK NAME,
+e.g. "Ally Bank checking"&gt;.
+
+Attached:
+1. sample_sanitized.csv — a sanitized sample of this bank's CSV export
+   (real column headers, real formats; identifying digits scrambled).
+2. importers/chase_cc.py — an existing importer from the app. Follow its
+   pattern exactly.
+
+What I know about this export's conventions (verify against the sample):
+&lt;e.g. "charges appear POSITIVE like Amex" / "separate Debit and Credit
+columns" / "single date column only" — delete what doesn't apply&gt;
+
+What to build:
+- A new file importers/&lt;bank_name&gt;.py with a parse(filepath, account_id,
+  db) function returning (rows, dupe_count, skipped), where each row dict
+  has the SAME keys the Chase importer produces (raw_* fields, trx_date,
+  post_date, vendor, amount, trx_type, l1_category, l2_category,
+  dedup_key, is_dupe, is_skip, dup_of_trx_id, flag_reason). Match the
+  contract precisely — the review queue, duplicate detection, and
+  auto-categorization all depend on that shape.
+- Keep the amount's RAW BANK SIGN in staging (the app flips signs at
+  approval time, not import time — you'll see this in the Chase
+  importer). If this bank's convention is inverted (e.g. Amex-style
+  positive charges) or split across Debit/Credit columns, normalize it to
+  "positive = money in, negative = money out" and say so in a comment.
+- Convert dates to YYYY-MM-DD. If there's only one date column, use it
+  for both trx_date and post_date, like the checking importer does.
+- Add a wrong-file header guard like the existing importers: if the
+  expected header column is missing, return a skipped entry with
+  reason "header" so the app can tell the user they picked the wrong
+  file — never fail silently.
+- Auto-flag rows that would double-count (this bank's card-autopay /
+  transfer descriptions), following how the checking importer uses
+  skip/transfer patterns.
+- Map the bank's own category column (if any) to the app's
+  (trx_type, l1_category, l2_category) the way chase_cc.py's classify
+  step does; otherwise leave categories blank for the review queue.
+- Register the new importer where the app chooses a parser per account
+  type (see routes_review.py's import_csv — the same place chase_cc,
+  chase_checking, and venmo are chosen). I add the account itself inside
+  the app (Docs &amp; Settings → Accounts) — only tell me if this bank
+  genuinely needs a new account TYPE beyond checking / credit_card /
+  digital_wallet / other.
+
+Before writing code, tell me your reading of the sample: which column is
+the date, which is the amount, what the sign convention appears to be,
+and anything ambiguous. Ask me to confirm before proceeding.
+
+After building it, tell me exactly how to test: which file to import in
+the app and what I should expect to see in the review queue.
+
+Constraints: I have backed up the folder, but still — only create the new
+importer file and the minimal registration change. Do not modify the
+database schema or any other importer.</code></pre></div>
+
+<h3>Step 4 — Test it</h3>
+<ol class="steps">
+<li>Restart the app (<code>./restart.sh</code>, or <kbd>Ctrl</kbd>+<kbd>C</kbd> and start
+  again).</li>
+<li>Import a real (un-sanitized) statement from the new bank against its account.</li>
+<li>In the review queue, check the three things that go wrong: <strong>dates</strong> look
+  right, <strong>amount directions</strong> are right (charges as expenses, deposits as
+  income — "all my deposits show as expenses" means the sign convention is flipped; a
+  one-line fix, tell the AI), and <strong>vendor names</strong> are readable.</li>
+</ol>
+<p>If you build a solid importer for a common bank, consider contributing it back —
+see <a href="#about">section 18</a>.</p>
+</section>
+
+<!-- ══════════════════════════ 15 ══════════════════════════ -->
+<section id="cleanup-trash">
+<h2><span class="secno">15.</span>Data Cleanup &amp; Trash</h2>
+
+<h3>Data Cleanup</h3>
+<p>Sidebar → <span class="ui">Tools</span> → <span class="ui">All Tools</span> →
+<span class="ui">Data Cleanup</span> (URL: <code>/tools/cleanup</code>). The page re-scans your
+ledger on every load and presents findings in six groups, each reviewed and fixed one item at
+a time:</p>
+<ul>
+  <li><strong>Vendors</strong> — names that still contain store numbers, reference IDs, or
+    other noise, each with a suggested clean name; saving renames the vendor
+    <em>globally</em> across your ledger.</li>
+  <li><strong>Tags — suspected duplicates</strong> — case/space/prefix variants of the same
+    tag, with a one-click merge into the more-used one.</li>
+  <li><strong>Missing dates</strong> — rows missing payment/statement/post dates, with a
+    one-click fill-from-transaction-date.</li>
+  <li><strong>Possible duplicates</strong> — same account, day, amount, and description across
+    <em>different</em> import batches (repeat charges within one statement, like two subway
+    swipes, are deliberately not flagged).</li>
+  <li><strong>Categories to re-pick</strong> — rows whose category is missing or no longer in
+    your tree, with inline dropdowns.</li>
+  <li><strong>Missing receipts</strong> — active expenses with no receipt and no
+    no-receipt-needed flag; resolve by inboxing the receipt or clicking "No receipt needed"
+    right there.</li>
+</ul>
+<p>Every finding has an <span class="ui">Ignore</span> button that hides it forever (a counter
+at the top lets you clear the ignore list and un-hide everything). Skimming this page
+quarterly keeps entropy from accumulating.</p>
+
+<h3>Trash</h3>
+<p>Deleting a transaction anywhere in the app is a <strong>soft delete</strong>: the row moves
+to <span class="ui">Trash</span> (sidebar, near the top), where you can restore it or
+permanently purge it. So keep your ledger clean without fear — nothing is gone until you purge
+it from Trash. (The review queue's discarded rows live in their own "discarded" view on the
+Review Queue page, with the same restore/delete choices; receipts likewise have their own
+trash view under Tools → Receipts.)</p>
+</section>
+
+<!-- ══════════════════════════ 16 ══════════════════════════ -->
+<section id="backups">
+<h2><span class="secno">16.</span>Backups &amp; moving computers</h2>
+
+<p>The entire application state lives in <strong>one folder</strong> — the app folder
+containing:</p>
+<ul>
+  <li><code>finance.db</code> — every transaction, account, category, budget, reconciliation.</li>
+  <li><code>imports/</code> — your archived raw bank CSVs.</li>
+  <li><code>receipts/</code> — the receipt inbox and the filed tree.</li>
+  <li><code>.app_password</code> and <code>.secret_key</code> — your login and session secrets.</li>
+  <li>The code itself.</li>
+</ul>
+
+<h3>Backing up</h3>
+<ol class="steps">
+<li>Quit the app (or just don't be mid-import).</li>
+<li>Copy the whole folder somewhere safe: an external drive, or a folder that your existing
+  backup system (Time Machine, File History, a synced drive) already covers. That's it —
+  there is no export step, no database dump, no cloud account.</li>
+<li>Do it on a schedule you trust; monthly after your close (<a href="#core-loop">section
+  5</a>) is a natural rhythm. <strong>Always</strong> do it before letting an AI assistant
+  modify the code.</li>
+</ol>
+<div class="box warn"><span class="bt">If you sync the live folder to a cloud drive</span>
+Syncing a live SQLite database while the app is writing can corrupt the synced copy. Prefer
+copying the folder <em>to</em> the synced location while the app is stopped, rather than
+running the app from inside a continuously-syncing folder. Also remember: putting your
+financial data on a cloud drive is a privacy decision — the app itself never does it.</div>
+
+<h3>Moving to a new computer</h3>
+<ol class="steps">
+<li>On the old machine: stop the app and copy the whole folder.</li>
+<li>On the new machine: install Python 3.10+ and put the folder wherever you like.</li>
+<li>In the folder: create the venv and <code>pip install -r requirements.txt</code>
+  (<a href="#install">section 2</a> steps 4–5 — the venv itself doesn't survive the move;
+  recreate it rather than copying it).</li>
+<li>Start the app and log in with your usual password.
+  <div class="box check"><span class="bt">Checkpoint</span>
+  Dashboard, ledger, receipts links — all exactly as you left them. Everything is in the
+  folder; nothing lives anywhere else on the old machine.</div></li>
+</ol>
+<p><strong>Restoring from backup</strong> is the same operation: replace the folder with the
+backup copy, recreate the venv if needed, start the app.</p>
+</section>
+
+<!-- ══════════════════════════ 17 ══════════════════════════ -->
+<section id="troubleshooting">
+<h2><span class="secno">17.</span>Troubleshooting</h2>
+
+<details class="sub">
+<summary>"Address already in use" when starting / can't start the app</summary>
+<div class="inner">
+<p>Something (almost always an older copy of the app) is still holding port 5005.</p>
+<ul>
+  <li><strong>macOS/Linux:</strong> run <code>./restart.sh</code> — it kills anything on the
+    port, then starts fresh. By hand: <code>lsof -ti tcp:5005 | xargs kill</code>, then start
+    the app.</li>
+  <li><strong>Windows:</strong> <code>netstat -ano | findstr :5005</code> shows the PID in the
+    last column; <code>taskkill /PID &lt;pid&gt; /F</code> kills it; then
+    <code>python app.py</code>.</li>
+  <li>Worst case, restart the computer — inelegant, always works.</li>
+</ul>
+</div>
+</details>
+
+<details class="sub">
+<summary>The app is running but behaving oddly / my code change isn't showing up</summary>
+<div class="inner">
+<p>Classic stale-process problem: an old copy of the server is still serving. Open
+<code>http://127.0.0.1:5005/health</code> in your browser — a small JSON status the app
+exposes exactly for this. Check <code>started_at</code> (is that when you <em>think</em> you
+started it?) and <code>pid</code>. If the start time is old, do a hard restart
+(<code>./restart.sh</code>, or kill by port as above) and re-check <code>/health</code> —
+the <code>version</code> fingerprint changes when the running code actually changed.</p>
+</div>
+</details>
+
+<details class="sub">
+<summary>Import says "Parsed 0 importable rows…"</summary>
+<div class="inner">
+<p>The app never fails an import silently — read the message, it names the cause:</p>
+<ul>
+  <li><em>"this doesn't look like a checking export (missing the "Posting Date" column)"</em> —
+    you imported a file against the wrong account type (e.g. a credit-card CSV into a checking
+    account, or vice versa). Re-import with the right account selected. The credit-card
+    equivalent checks for "Transaction Date"; the Venmo importer looks for the Venmo
+    statement header (ID / Datetime / Amount).</li>
+  <li><em>"N row(s) with an unparseable Amount (e.g. "$1,063.03")"</em> — the file was
+    opened and re-saved with currency formatting (usually via Excel). The parser tolerates
+    most formats ($ signs, commas, parentheses-negatives), so this usually means something
+    stranger — open the file in a text editor and look at the quoted example.</li>
+  <li><em>"N row(s) missing a date/description"</em> — genuinely blank rows; if it's every
+    row, it's the wrong-file case above.</li>
+</ul>
+</div>
+</details>
+
+<details class="sub">
+<summary>I imported the same statement twice</summary>
+<div class="inner">
+<p>By design, nothing bad happened: re-imported rows are flagged as
+<span class="ui">Duplicate</span> in the review queue instead of entering your ledger.
+Confirm the flags (discard them) and move on — or, if the whole batch was a mistake, undo it
+from Recent Imports on the import page.</p>
+</div>
+</details>
+
+<details class="sub">
+<summary>Receipt scan extracts nothing / wrong amounts / OCR fails</summary>
+<div class="inner">
+<ul>
+  <li><strong>Nothing extracts from PDFs:</strong> install poppler
+    (<code>brew install poppler</code> on macOS; <code>poppler-utils</code> elsewhere).</li>
+  <li><strong>Nothing extracts from photos:</strong> the OCR backends are tried in order
+    (macOS-native first, then tesseract). Install tesseract
+    (<code>brew install tesseract</code> / your distro's package) if the scan reports OCR
+    failures.</li>
+  <li><strong>Wrong totals from photos:</strong> almost always photo quality — glare, crumple,
+    or the total cropped out. Re-photograph flat with the whole receipt in frame. The
+    confidence tiers route doubtful extractions to review rather than misfiling, so a wrong
+    extraction costs you a review click, not a corrupted ledger.</li>
+  <li><strong>Receipt won't match:</strong> is the transaction imported <em>and approved</em>
+    yet? Matching runs against active ledger rows. Foreign-currency receipts generally need
+    manual placement.</li>
+</ul>
+</div>
+</details>
+
+<details class="sub">
+<summary>I forgot my password</summary>
+<div class="inner">
+<p>Open the app folder and look for the file <code>.app_password</code> (it's hidden — in
+Terminal: <code>cat ~/personal-financial-tracker/.app_password</code>; in PowerShell:
+<code>type .app_password</code> from inside the folder). That file <em>is</em> the password.
+Edit it to set a new one, then restart the app. No file = the password was never changed =
+<code>changeme</code>.</p>
+</div>
+</details>
+
+<details class="sub">
+<summary>Anything else</summary>
+<div class="inner">
+<p>Copy the exact error — from the browser and from the terminal running the app (or
+<code>app.log</code> if you used <code>start.sh</code>) — and paste it into an AI assistant
+with a sentence about what you were doing. These are ordinary Python/Flask problems and AI
+assistants are extremely good at them. If it looks like a bug in the app itself, the maker
+would like to hear about it: <a href="#about">section 18</a>.</p>
+</div>
+</details>
+</section>
+
+<!-- ══════════════════════════ 18 ══════════════════════════ -->
+<section id="about">
+<h2><span class="secno">18.</span>About the maker &amp; license</h2>
+
+<p>Personal Financial Tracker is made by <strong>JBY Advisory Inc.</strong> In the maker's
+words: "I run a business as its solo owner and sole employee — Gusto for payroll, paying
+myself a salary plus distributions. I built this open-source version for personal tracking.
+The tool I actually live in every day is a far more robust system that links my business and
+personal finances in one place." The import-review-approve loop, the receipts filing, and the
+reconciliation tools all exist because the maker wanted them for their own books; PFT is that
+machinery, open-sourced so others can own their financial data the same way.</p>
+
+<p><strong>The full suite</strong> goes well beyond PFT: full double-entry accounting with
+automatic posting and always-verified books (trial balance, A&nbsp;=&nbsp;L&nbsp;+&nbsp;E);
+balance sheet and journal with an accrual/cash toggle; monthly budgeting &amp; forecasting
+(per-line worksheets, finalized-month projections, a modeled income statement);
+budget-vs-actuals with projected full-year views; a deep tax-planning suite (multi-year
+projections, bracket breakouts, QBI sensitivity, quarterly remittance planning); payroll
+reconciliation including the employer side; time tracking and invoice generation;
+expense-sheet/reimbursement workflows; receipt OCR with automatic filing; and investments
+with benchmark comparison. It's tailored to the maker's stack (Chase + Gusto) but easy to
+adapt — for a small contractor or consulting business it can be an incredible value-add, and
+for many it could replace QuickBooks Online. If your setup looks like that and you'd like a
+demo of the full suite: <a href="mailto:jbyadvisory@gmail.com">jbyadvisory@gmail.com</a>.</p>
+
+<p><strong>Contact:</strong> the same address —
+<a href="mailto:jbyadvisory@gmail.com">jbyadvisory@gmail.com</a> — for questions, bug
+reports, ideas, or a bank importer you'd like to contribute. New importers and receipt
+extractors that others can benefit from are especially welcome, via the repository's issues
+and pull requests.</p>
+
+<p><strong>License:</strong> MIT, © 2026 JBY Advisory Inc. See the <code>LICENSE</code> file in
+the repository. In short: use it, fork it, modify it, redistribute it — just keep the license
+notice, and understand it comes with no warranty.</p>
+
+<p class="toplink"><a href="#what-it-is">Back to top ↑</a></p>
+</section>
+
+</main>
+</div>
+
+<script>
+// ── Scroll-spy: highlight the current section in the sidebar ───────────────
+(function () {
+  const links = Array.from(document.querySelectorAll('#navlinks a'));
+  const byId = {};
+  links.forEach(a => { byId[a.getAttribute('href').slice(1)] = a; });
+  const sections = Array.from(document.querySelectorAll('main section[id]'));
+
+  function setActive(id) {
+    links.forEach(a => a.classList.remove('active'));
+    if (byId[id]) byId[id].classList.add('active');
+  }
+
+  if ('IntersectionObserver' in window) {
+    let visible = new Set();
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) visible.add(e.target.id);
+        else visible.delete(e.target.id);
+      });
+      // Highlight the first visible section in document order
+      for (const s of sections) {
+        if (visible.has(s.id)) { setActive(s.id); return; }
+      }
+    }, { rootMargin: '-10% 0px -70% 0px' });
+    sections.forEach(s => obs.observe(s));
+  }
+
+  // Clicking a nav link on mobile collapses the menu
+  links.forEach(a => a.addEventListener('click', () => {
+    document.getElementById('sidenav').classList.remove('open');
+  }));
+
+  // If the URL has a hash, open any collapsed parent and mark it active
+  function openHashTarget() {
+    const id = location.hash.slice(1);
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    const det = el.closest('details');
+    if (det) det.open = true;
+    setActive(id);
+  }
+  window.addEventListener('hashchange', openHashTarget);
+  openHashTarget();
+})();
+
+// ── Copy buttons on every prompt/command block ─────────────────────────────
+(function () {
+  document.querySelectorAll('.copywrap').forEach(wrap => {
+    const pre = wrap.querySelector('pre');
+    if (!pre) return;
+    const btn = document.createElement('button');
+    btn.className = 'copy';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', () => {
+      const text = pre.innerText;
+      function done(ok) {
+        btn.textContent = ok ? 'Copied' : 'Select + copy manually';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+      } else {
+        // file:// fallback
+        const r = document.createRange();
+        r.selectNodeContents(pre);
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(r);
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
+        sel.removeAllRanges();
+        done(ok);
+      }
+    });
+    wrap.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>

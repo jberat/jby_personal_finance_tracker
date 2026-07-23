@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% from "_multi_select.html" import multi_select %}
+{% block title %}Investments Transactions — Personal Financial Tracker{% endblock %}
+{% block page_title %}Investments — Transactions{% endblock %}
+{% block header_actions %}
+  <button type="button" class="btn btn-ghost btn-sm" onclick="__exportOpen()">Export</button>
+  <a href="/investments/docs" class="btn btn-ghost btn-sm">? Docs</a>
+{% endblock %}
+{% block back_link %}
+<a href="/investments/overview" class="btn btn-ghost btn-sm"
+   style="margin-right:4px;font-size:13px" title="Back">←</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="text-sm text-2" style="margin-bottom:16px;line-height:1.6">
+  Every investment event, newest first. Add anything below — contributions
+  (net-new money in), withdrawals (money out to checking), <strong>moves
+  (money between investment accounts — never an expense, never new
+  money)</strong>, value snapshots, dividends/interest/fees, and account
+  closures. Dates can be historical (this is the backfill surface too).
+</div>
+
+{% if pending_sync %}
+<div class="alert info" style="margin-bottom:16px">
+  <span>⇅</span>
+  <span><strong>{{ pending_sync }}</strong> 2026 checking-transfer
+    transaction{{ 's' if pending_sync != 1 }} not yet in the investments
+    ledger.</span>
+  <button class="btn btn-primary btn-sm" id="inv-sync" style="margin-left:auto">
+    Sync now</button>
+</div>
+{% endif %}
+<div id="inv-sync-result" class="text-xs" style="margin-bottom:12px"></div>
+
+<!-- Entry form -->
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header"><h2>Add event</h2>
+    <span id="inv-ev-msg" class="text-xs"></span>
+  </div>
+  <div class="card-body">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div><div class="text-xs text-3">Type</div>
+        <select class="form-control" id="ev-type" data-no-combo onchange="evTypeChanged()">
+          <option value="contribution">Contribution (new money in)</option>
+          <option value="withdrawal">Withdrawal (money out)</option>
+          <option value="move">Move (between accounts)</option>
+          <option value="snapshot">Value snapshot</option>
+          <option value="dividend">Dividend</option>
+          <option value="interest">Interest</option>
+          <option value="fee">Fee</option>
+          <option value="gain_loss">Gain / loss adj.</option>
+          <option value="close">Close account</option>
+        </select></div>
+      <div><div class="text-xs text-3">Date</div>
+        <input class="form-control" id="ev-date" type="date"></div>
+      <div><div class="text-xs text-3" id="ev-acct-label">Account</div>
+        <select class="form-control" id="ev-acct">
+          {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}{% if not a.active %} (closed){% endif %}</option>{% endfor %}
+        </select></div>
+      <div id="ev-to-wrap" style="display:none">
+        <div class="text-xs text-3">To account</div>
+        <select class="form-control" id="ev-to">
+          <option value="">— (cash out)</option>
+          {% for a in accounts %}{% if a.active %}<option value="{{ a.id }}">{{ a.name }}</option>{% endif %}{% endfor %}
+        </select></div>
+      <div id="ev-amt-wrap"><div class="text-xs text-3">Amount $</div>
+        <input class="form-control" id="ev-amount" type="number" step="0.01"
+               style="width:120px;text-align:right"></div>
+      <div id="ev-val-wrap" style="display:none">
+        <div class="text-xs text-3">Account value $</div>
+        <input class="form-control" id="ev-value" type="number" step="0.01"
+               style="width:130px;text-align:right"></div>
+      <div style="flex:1;min-width:160px"><div class="text-xs text-3">Note</div>
+        <input class="form-control" id="ev-note" placeholder="optional"></div>
+      <button class="btn btn-primary btn-sm" id="ev-add">Add</button>
+    </div>
+    <div class="text-xs text-3" style="margin-top:8px" id="ev-hint">
+      Contribution creates a new lot (its own tracked "batch"). Snapshot
+      sets the account's value on a date — the gain/loss since the last
+      anchor spreads across its lots proportionally.
+    </div>
+  </div>
+</div>
+
+<!-- Filters (checkbox dropdowns, like income/expenses) -->
+<form method="GET" class="filter-bar" id="inv-filter-form" style="margin-bottom:12px">
+  {{ multi_select('accts', 'Accounts', acct_options, selected_accts) }}
+  {{ multi_select('kinds', 'Type', kind_options, selected_kinds) }}
+  <button class="btn btn-primary btn-sm" type="submit">Filter</button>
+  {% if selected_accts or selected_kinds %}<a href="/investments/ledger" class="btn btn-ghost btn-sm">Clear</a>{% endif %}
+  <span style="margin-left:auto" class="text-sm text-2">{{ events | length }} event{{ 's' if events|length != 1 }} (max 500)</span>
+</form>
+
+{% if events %}
+<div class="table-wrap"><table class="trx-table-uniform" style="width:100%;font-size:12.5px;vertical-align:middle">
+  <thead><tr>
+    <th>Date</th><th class="left">Account</th><th class="left">Type</th>
+    <th>Value</th><th class="left">Note</th>
+  </tr></thead>
+  <tbody>
+  {% for e in events %}
+    <tr style="vertical-align:middle">
+      <td style="white-space:nowrap">{{ e.event_date }}</td>
+      <td class="left"><a href="/investments/account/{{ e.account_id }}" style="color:var(--navy)">{{ e.acct_name }}</a></td>
+      <td class="left">{{ e.kind }}</td>
+      {# One Value column: snapshots show the absolute account value; every
+         other type shows its signed amount (the type says what it means). #}
+      <td style="text-align:center">{% if e.snapshot_value is not none %}${{ '{:,.2f}'.format(e.snapshot_value) }}{% elif e.amount is not none %}{{ '{:+,.2f}'.format(e.amount) }}{% else %}—{% endif %}</td>
+      <td class="left">
+        <div class="inv-note-cell">
+          <input class="inv-note-edit form-control" data-eid="{{ e.id }}"
+            value="{{ e.note or '' }}" placeholder="add a note…"
+            style="flex:1;min-width:0;border:1px solid transparent;background:transparent;padding:3px 6px;font-size:12.5px">
+          <button type="button" class="inv-note-expand" data-eid="{{ e.id }}"
+            title="Expand / edit full note" aria-label="Expand note">⤢</button>
+        </div>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="text-sm text-3" style="font-style:italic">No events yet — add one above, or run the sync.</div>
+{% endif %}
+
+{% from "_export_modal.html" import export_modal %}
+{{ export_modal('/export/investments-transactions.xlsx', 'Investments — Transactions',
+                acct_options=acct_options, selected_accts=selected_accts,
+                kind_options=kind_options, selected_kinds=selected_kinds) }}
+
+<!-- Note expand / full-editor popup -->
+<div id="note-modal" class="note-modal" hidden>
+  <div class="note-modal-box">
+    <div class="note-modal-head">
+      <span>Note</span>
+      <button type="button" class="note-modal-x" id="note-modal-close" aria-label="Close">×</button>
+    </div>
+    <textarea id="note-modal-text" class="form-control" rows="6"
+      placeholder="Add a note…" style="width:100%;font-size:13px;line-height:1.5"></textarea>
+    <div class="note-modal-foot">
+      <span id="note-modal-msg" class="text-xs"></span>
+      <span class="text-xs text-3">⌘/Ctrl+Enter to save</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="note-modal-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="note-modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.inv-note-cell{display:flex;align-items:center;gap:4px}
+.inv-note-expand{flex:0 0 auto;border:1px solid transparent;background:transparent;color:var(--text-3);
+  cursor:pointer;border-radius:4px;font-size:13px;line-height:1;padding:3px 6px}
+.inv-note-expand:hover{background:var(--surface);border-color:var(--border-mid);color:var(--navy)}
+.note-modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;
+  justify-content:center;z-index:1000}
+.note-modal[hidden]{display:none}
+.note-modal-box{background:var(--surface,#fff);border:1px solid var(--border-mid,#ddd);border-radius:10px;
+  width:min(560px,92vw);padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.note-modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
+  font-weight:600;color:var(--navy)}
+.note-modal-x{border:none;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:var(--text-3)}
+.note-modal-foot{display:flex;align-items:center;gap:8px;margin-top:12px}
+#note-modal-msg{margin-right:auto}
+</style>
+
+<script>
+function evTypeChanged(){
+  const t=document.getElementById('ev-type').value;
+  document.getElementById('ev-to-wrap').style.display = (t==='move'||t==='close') ? '' : 'none';
+  document.getElementById('ev-amt-wrap').style.display = (t==='snapshot'||t==='close') ? 'none' : '';
+  document.getElementById('ev-val-wrap').style.display = (t==='snapshot') ? '' : 'none';
+  document.getElementById('ev-acct-label').textContent = (t==='move') ? 'From account' : 'Account';
+  const hints={
+    contribution:'Creates a new lot (its own tracked "batch") — use for NET-NEW money entering the portfolio.',
+    withdrawal:'Money leaving the portfolio back to checking. Consumes lots oldest-first.',
+    move:'Between investment accounts — lots carry their origin date + principal across; NOT an expense, NOT new money.',
+    snapshot:'Sets the account\'s value on a date. Gain/loss since the last anchor spreads across lots proportionally.',
+    dividend:'Adds to account value (no new principal).', interest:'Adds to account value (no new principal).',
+    fee:'Reduces account value. Enter as a positive amount.',
+    gain_loss:'Signed one-off value adjustment (use snapshot when you know the absolute value instead).',
+    close:'Closes the account: moves the full balance to "To account" (or cashes out if blank), then retires it.'};
+  document.getElementById('ev-hint').textContent = hints[t] || '';
+}
+document.getElementById('ev-add').addEventListener('click', async ()=>{
+  const m=document.getElementById('inv-ev-msg');
+  const body={type:document.getElementById('ev-type').value,
+              date:document.getElementById('ev-date').value,
+              account_id:document.getElementById('ev-acct').value,
+              to_account_id:document.getElementById('ev-to').value || null,
+              amount:document.getElementById('ev-amount').value,
+              value:document.getElementById('ev-value').value,
+              note:document.getElementById('ev-note').value};
+  if(body.type==='move' && body.to_account_id && body.account_id===String(body.to_account_id)){
+    m.textContent='A move must be between two DIFFERENT accounts.'; m.style.color='var(--red)'; return;
+  }
+  try{
+    const r=await fetch('/api/investments/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.ok){if(window._txSavedToast)_txSavedToast();m.textContent='✓ Added — reloading…';m.style.color='var(--green)';setTimeout(()=>location.reload(),500);}
+    else{m.textContent=d.error||'Failed';m.style.color='var(--red)';}
+  }catch(e){m.textContent='Failed: '+e.message;m.style.color='var(--red)';}
+});
+document.getElementById('inv-sync')?.addEventListener('click', async ()=>{
+  const out=document.getElementById('inv-sync-result');
+  out.textContent='Syncing…';
+  const r=await fetch('/api/investments/sync-transfers',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const d=await r.json();
+  if(d.ok){
+    out.style.color = d.skipped.length ? 'var(--red)' : 'var(--green)';
+    out.textContent = `✓ ${d.synced} synced` + (d.skipped.length
+      ? ` · ${d.skipped.length} skipped: ` + d.skipped.map(s=>`trx #${s.trx} (${s.why})`).join('; ')
+      : '');
+    if(!d.skipped.length) setTimeout(()=>location.reload(), 1200);
+  } else out.textContent = d.error || 'Sync failed';
+});
+
+// ── Live-editable notes in the Transactions table ──────────────────────
+document.querySelectorAll('.inv-note-edit').forEach(inp=>{
+  inp.dataset.orig = inp.value;
+  inp.addEventListener('focus', ()=>{ inp.style.borderColor='var(--border-mid)'; inp.style.background='var(--surface)'; });
+  const save = async ()=>{
+    inp.style.borderColor='transparent'; inp.style.background='transparent';
+    if(inp.value===inp.dataset.orig) return;
+    try{
+      const r=await fetch('/api/investments/event/'+inp.dataset.eid+'/note',
+        {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:inp.value})});
+      const d=await r.json();
+      if(d.ok){ inp.dataset.orig=inp.value; if(window._txSavedToast)_txSavedToast(); }
+      else if(window._txErrorToast)_txErrorToast(d.error||'Save failed');
+    }catch(e){ if(window._txErrorToast)_txErrorToast('Save failed — network error.'); }
+  };
+  inp.addEventListener('blur', save);
+  inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
+});
+
+// Move must be between two different accounts — grey out the matching option.
+(function(){
+  const from=document.getElementById('ev-acct'), to=document.getElementById('ev-to');
+  function sync(){ if(document.getElementById('ev-type').value!=='move') return;
+    [...to.options].forEach(o=>{ o.disabled = (o.value && o.value===from.value); });
+    if(to.value===from.value) to.value='';
+  }
+  from.addEventListener('change', sync);
+  document.getElementById('ev-type').addEventListener('change', sync);
+})();
+
+// ── Expandable note editor (popup callout) ─────────────────────────────
+(function(){
+  const modal=document.getElementById('note-modal');
+  if(!modal) return;
+  const ta=document.getElementById('note-modal-text');
+  const msg=document.getElementById('note-modal-msg');
+  let curInput=null;
+  function open(input){ curInput=input; ta.value=input.value; msg.textContent='';
+    modal.hidden=false; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  function close(){ modal.hidden=true; curInput=null; }
+  const save=async ()=>{
+    if(!curInput) return;
+    msg.textContent='Saving…'; msg.style.color='var(--text-3)';
+    try{
+      const r=await fetch('/api/investments/event/'+curInput.dataset.eid+'/note',
+        {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:ta.value})});
+      const d=await r.json();
+      if(d.ok){ curInput.value=ta.value; curInput.dataset.orig=ta.value;
+        if(window._txSavedToast)_txSavedToast(); close(); }
+      else{ msg.textContent=d.error||'Save failed'; msg.style.color='var(--red)'; }
+    }catch(e){ msg.textContent='Save failed — network error.'; msg.style.color='var(--red)'; }
+  };
+  document.querySelectorAll('.inv-note-expand').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const input=document.querySelector('.inv-note-edit[data-eid="'+btn.dataset.eid+'"]');
+      if(input) open(input);
+    });
+  });
+  document.getElementById('note-modal-close').addEventListener('click', close);
+  document.getElementById('note-modal-cancel').addEventListener('click', close);
+  document.getElementById('note-modal-save').addEventListener('click', save);
+  modal.addEventListener('click', e=>{ if(e.target===modal) close(); });
+  ta.addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter'){ e.preventDefault(); save(); } });
+  document.addEventListener('keydown', e=>{ if(!modal.hidden && e.key==='Escape') close(); });
+})();
+</script>
+
+{% endblock %}
